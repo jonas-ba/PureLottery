@@ -7,18 +7,21 @@ contract binaryLottery {
     uint public totalTickets;
     uint public soldTickets;
 
-    address[][] public payable participants;
-    uint[][] public hashes; 
-    uint[][] public randomNumbers; // if not revealed yet, is it enough to just store a null?
-    // TODO more efficient way to store data like mapping? 
-    // Use one dimensional array if 2-dimensional not possible
+    address payable[] public players; // ticket number -> player address
+    // (ticket, round) -> match in the next round ???
+    mapping (uint => mapping (uint => uint)) results; // results[round][match] --> ticket number TODO built view functions to make code easier readable
+    mapping(uint => mapping (uint => bytes32)) hashes; // access via hashes[ticket][round] --> hash
+    mapping(uint => mapping (uint => uint)) randomNumbers; // access via randomNumbers[ticket][round] --> rnd number
+    // if not revealed yet, is it enough to just store a null?
 
+    uint public startTime;
     bool public started;
     bool public ended;
-    uint public startTime;
-    uint public roundsLeft;
-    uint public timeForReveal = 1 minutes;
-    uint public timeForBreak = 1 minutes; // TODO what is an appropriate time?
+    uint public rounds;
+    uint public currentRound;
+    bool public breakActive;
+    uint public constant TIME_FOR_REVEAL = 1 minutes;
+    uint public constant TIME_FOR_BREAK = 1 minutes; // TODO what is an appropriate time?
 
     address public owner;
 
@@ -26,48 +29,84 @@ contract binaryLottery {
         owner = msg.sender;
         totalTickets = 1 << lotteryRounds; // 2^lotteryRounds
         ticketPrice = pricePerTicket;
-        roundsLeft = lotteryRounds;
+        rounds = lotteryRounds;
         //soldTickets = 0;
         //startedLottery = false;
     }
 
-    function startLottery public {
+    // returns the ticket number
+    function signUp(bytes32[rounds] hashesForEveryRound) public payable returns (uint) {
+        require(msg.value == ticketPrice);
+        require(soldTickets < totalTickets);
+        require(!started);
+        players.push(payable(msg.sender));
+        soldTickets++;
+        uint ticketNumber = players.length - 1;
+        for(uint i = 0; i < rounds; i++) {
+            hashes[ticketNumber][i] = hashesForEveryRound[i];
+        }
+        return ticketNumber;
+    }
+
+    // A player can withdraw from the lottery and get a refund if it has not started yet
+    function refund(uint ticketNumber) public {
+        require(!started);
+        require(msg.sender == players[ticketNumber]);
+        soldTickets--;
+        players[ticketNumber] = 0;
+        (bool sent, ) = msg.sender.call{value: ticketPrice}("");
+        require(sent); // is this necessary? If the money transfer fails, the player is forced to stay in the lottery
+    }
+
+    function startLottery() public {
         require(msg.sender == owner);
         require(soldTickets == totalTickets);
         require(!started);
         startTime = block.timestamp;
         started = true;
     }
+    // alternative implementation: start lottery when all tickets are sold
 
-    function hash(uint number, uint nonce) public pure returns (uint) {
-        
-    }
+    // TODO
+    function reveal(uint ticketNumber uint randomNumber, uint nonce) public {
+        //require(players[ticketNumber] == msg.sender);
+        refreshTimeConstraints();
+        require(!breakActive);
+        require(hashes[tickerNumber][currentRound] == hash(randomNumber, nonce));
+        randomNumbers[ticketNumber][currentRound] = randomNumber;
+        // TODO
+        // require: ticket is in results for current round
+        // update ticket of next round
 
-    // returns the tickets number
-    function signUp() public payable returns (uint) {
-
-    }
-
-    function reveal(uint number, uint nonce) public {
-        // call startNextRound()
-
-        // check hash value for the current round and deermine winner
-        // require(reveal-phase not ended)
-        // update participant of next round
+        // does an alternative state variable make more sense? (ticket, round) -> match in the next round
+        // this would be computationally less intensive, because index does not have to be computed
     }
 
     function withdrawPrize() public {
-        // roundsleft == 0 AND currentPhase has to be over
+        refreshTimeConstraints();
+        require(ended);
+        uint winnerTicketNumber = results[0][0];
+        require(msg.sender == players[winnerTicketNumber]);
+        msg.sender.call{value: address(this).balance}("");
     }
 
-    // A player can withdraw from the lottery and get a refund if it has not started yet
-    function refund() public {
-       
+    function refreshTimeConstraints() public {
+        if(block.timestamp > startTime + TIME_FOR_REVEAL) {
+            breakActive = true;
+        }
+        if(block.timestamp > startTime + TIME_FOR_REVEAL + TIME_FOR_BREAK) {
+            startTime =+ TIME_FOR_REVEAL + TIME_FOR_BREAK;
+            breakActive = false;
+            roundsLeft--;
+            refreshTimeConstraints();
+        }
+        if(roundsLeft == 0 & block.timestamp > startTime + TIME_FOR_REVEAL) {
+            ended = true;
+        }
     }
 
-    function startNextRound() public {
-        // currentRound++
+    function hash(uint number, uint nonce) public pure returns (bytes32) {
+        return keccak256(abi.encodePacked(number, nonce));
     }
 
-    // TODO consider case when one partcicipant buys several tickets
 }

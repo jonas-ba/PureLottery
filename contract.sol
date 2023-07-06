@@ -14,7 +14,7 @@ contract lottery {
         uint randomNumberLeft;
         uint randomNumberRight;
     }
-    mapping (uint => mapping (uint => Match)) matches; // matches[round][matchID] returns(Match)
+    mapping (uint => mapping (uint => Match)) public matches; // matches[round][matchID] returns(Match)
 
     uint public ticketPrice;
     uint public totalTickets;
@@ -87,30 +87,38 @@ contract lottery {
         return tickets.length == totalTickets && refundedTickets.length == 0;
     }
 
-    
     function reveal(uint ticketNumber, uint randomNumber, uint nonce) public {
-        // TODO think this through
         refreshTimeConstraints();
         require(!breakOngoing);
+        require(tickets[ticketNumber].hashes[currentRound] == hash(randomNumber, nonce));
+        tickets[ticketNumber] = ticketCheck(ticketNumber);
+        updateNextMatch(randomNumber, ticketNumber);
+    }
+
+    function ticketCheck(uint ticketNumber) private view returns(Ticket memory) {
         Ticket memory ticket = tickets[ticketNumber];
         require(ticket.player == msg.sender);
-        require(ticket.hashes[currentRound] == hash(randomNumber, nonce));
-
         require(isWinner(currentRound, ticketNumber));
+        require(ticket.highestParticpatedRound == currentRound);
+        ticket.highestParticpatedRound++;
+        return ticket;
+    }
+
+    function updateNextMatch(uint randomNumber, uint ticketNumber) private {
         (uint nextMatchID, bool left) = getMatchID(currentRound + 1, ticketNumber);
-        Match memory nextMatch = matches[currentRound + 1][nextMatchID];
+        Match storage nextMatch = matches[currentRound + 1][nextMatchID];
         if(left) {
             nextMatch.randomNumberLeft = randomNumber;
         } else {
             nextMatch.randomNumberRight = randomNumber;
         }
+        finalRoundDetermineWinner(ticketNumber);
+    }
 
-        require(ticket.highestParticpatedRound == currentRound - 1);
-
+    function finalRoundDetermineWinner(uint ticketNumber) private {
         if(currentRound == totalRounds - 1 && isWinner(currentRound, ticketNumber)) {
-            winner = ticket.player;
+            winner = tickets[ticketNumber].player;
         }
-        ticket.highestParticpatedRound = currentRound;
     }
 
     function getMatchID(uint round, uint ticketID) private pure returns (uint, bool) {
@@ -157,3 +165,8 @@ contract lottery {
     }
 
 }
+
+// TODO:
+// https://techgeek628.medium.com/solidity-and-object-oriented-programming-oop-191f8deb8316
+// debug in depth
+// comment and make easier readable

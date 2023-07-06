@@ -165,7 +165,3 @@ contract lottery {
     }
 
 }
-
-// TODO:
-// debug in depth
-// comment and make easier readable

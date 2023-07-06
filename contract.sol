@@ -1,107 +1,167 @@
 pragma solidity >=0.8.2 <0.9.0;
 
 
-contract binaryLottery {
+contract lottery {
+
+    struct Ticket {
+        address payable player;
+        uint reachedRound;
+        bytes32[] hashes;
+    }
+    struct Ticket[] public tickets; // tickets[ticketID] returns(Ticket)
+
+    struct Match {
+        uint randomNumberLeft;
+        uint randomNumberRight;
+    }
+    mapping (uint => mapping (uint => Match)) matches; // matches[round][matchID] returns(Match)
 
     uint public ticketPrice;
     uint public totalTickets;
-    uint public soldTickets;
-
-    address payable[] public players; // ticket number -> player address
-    // (ticket, round) -> match in the next round ???
-    mapping (uint => mapping (uint => uint)) results; // results[round][match] --> ticket number TODO built view functions to make code easier readable
-    mapping(uint => mapping (uint => bytes32)) hashes; // access via hashes[ticket][round] --> hash
-    mapping(uint => mapping (uint => uint)) randomNumbers; // access via randomNumbers[ticket][round] --> rnd number
-    // if not revealed yet, is it enough to just store a null?
+    uint[] public refundedTickets;
 
     uint public startTime;
     bool public started;
-    bool public ended;
-    uint public rounds;
+    uint public totalRounds;
     uint public currentRound;
-    bool public breakActive;
+    bool public breakOngoing;
     uint public constant TIME_FOR_REVEAL = 1 minutes;
-    uint public constant TIME_FOR_BREAK = 1 minutes; // TODO what is an appropriate time?
+    uint public constant TIME_FOR_BREAK = 1 minutes;
 
     address public owner;
 
-    constructor(uint lotteryRounds, uint pricePerTicket) {
+    constructor(uint numberOfTickets, uint pricePerTicket) {
+        totalRounds = log2(numberOfTickets);
+        require(numberOfTickets == 2**totalRounds);
         owner = msg.sender;
-        totalTickets = 1 << lotteryRounds; // 2^lotteryRounds
+        totalTickets = numberOfTickets;
         ticketPrice = pricePerTicket;
-        rounds = lotteryRounds;
-        //soldTickets = 0;
-        //startedLottery = false;
     }
 
-    // returns the ticket number
-    function signUp(bytes32[rounds] hashesForEveryRound) public payable returns (uint) {
-        require(msg.value == ticketPrice);
+    function log2(uint x) private pure returns (uint) {
+        uint result = 0;
+        while (x > 1) {
+            x >>= 1;
+            result++;
+        }
+        return result;
+    }
+
+    function signUp(bytes32[] hashes) public payable returns (uint) {
+        soldTickets = tickets.length - refundedTickets.length;
+        require(hashes.length == totalRounds)
         require(soldTickets < totalTickets);
+        require(msg.value == ticketPrice);
         require(!started);
-        players.push(payable(msg.sender));
-        soldTickets++;
-        uint ticketNumber = players.length - 1;
-        for(uint i = 0; i < rounds; i++) {
-            hashes[ticketNumber][i] = hashesForEveryRound[i];
+        Ticket ticket = Ticket(payable(msg.sender), 0, hashes);
+        uint ticketNumber;
+        if(refundedTickets.length == 0) {
+            ticketnumber = players.length;
+            tickets.push(ticket);
+        } else {
+            ticketNumber = redundedTickets.pop();
+            tickets[tickerNumber] = ticket;
         }
         return ticketNumber;
     }
 
-    // A player can withdraw from the lottery and get a refund if it has not started yet
+    // A player can withdraw from the lottery before the lottery starts
     function refund(uint ticketNumber) public {
         require(!started);
-        require(msg.sender == players[ticketNumber]);
-        soldTickets--;
-        players[ticketNumber] = 0;
-        (bool sent, ) = msg.sender.call{value: ticketPrice}("");
-        require(sent); // is this necessary? If the money transfer fails, the player is forced to stay in the lottery
+        require(msg.sender == tickets[ticketNumber].player);
+        refundedTickets.push(ticketNumber);
+        msg.sender.call{value: ticketPrice}("");
     }
 
     function startLottery() public {
         require(msg.sender == owner);
-        require(soldTickets == totalTickets);
+        require(allTicketsSold());
         require(!started);
         startTime = block.timestamp;
         started = true;
     }
-    // alternative implementation: start lottery when all tickets are sold
 
-    // TODO
-    function reveal(uint ticketNumber uint randomNumber, uint nonce) public {
-        //require(players[ticketNumber] == msg.sender);
+    function allTicketsSold() private view returns (bool) {
+        return tickets.length == totalTickets & refundedTickets.length == 0;
+    }
+
+    
+    function reveal(uint ticketNumber, uint randomNumber, uint nonce) public {
         refreshTimeConstraints();
-        require(!breakActive);
-        require(hashes[tickerNumber][currentRound] == hash(randomNumber, nonce));
-        randomNumbers[ticketNumber][currentRound] = randomNumber;
-        // TODO
-        // require: ticket is in results for current round
-        // update ticket of next round
+        require(!breakOngoing);
+        Ticket ticket = tickets[tickerNumber];
+        require(ticket.player == msg.sender);
+        require(ticket.hashes[currentRound] == hash(randomNumber, nonce));
 
-        // does an alternative state variable make more sense? (ticket, round) -> match in the next round
-        // this would be computationally less intensive, because index does not have to be computed
+
+
+
+
+
+
+        uint round = ticket.round;
+        uint matchID = ticket.matchID;
+        Match lastMatch = getMatch(round, matchID);
+        require(lastMatch.winner == msg.sender);
+
+        Match thisMatch = getMatch(round++, matchID/2);
+        if(matchID % 2 == 0) {
+            uint rndOfOpponent = thisMatch.randomNumber2 = randomNumber;
+        } else {
+            uint rndOfOpponent = thisMatch.randomNumber2 = randomNumber;
+        }
+        if(rndOfOpponent == 0) {
+            thisMatch.winner = msg.sender;
+        } else if(rndOfOpponent < randomNumber) {
+            thisMatch.winner = msg.sender;
+        } else {
+            thisMatch.winner = players[ticketNumber];
+        }
+        ticket.round = round++;
+        ticket.matchID = matchID/2; // TODO make this more efficient by using memory
+    }
+
+    function getMatchID(uint round, uint ticketID) private pure returns (uint matchID, bool left) {
+        if(round == 0) {
+            return (ticketID, ticketID % 2 == 0);
+        }
+        uint matchID = ticketID / (2**round);
+        bool left = ticketID / (2**(round-1) ) % 2 == 0;
+        return (matchID, left);
+    }
+
+    function isWinner(uint round, uint ticketID) private view returns (bool) {
+        if(round == 0) {
+            return true;
+        }
+        (uint matchID, bool left) = getMatchID(round, ticketID);
+        Match match = matches[round][matchID];
+        uint rnd = match.randomNumberLeft 
+        if(left) {
+            return match.randomNumberLeft == 0;
+        } else {
+            return match.randomNumberRight == 0;
+        }
     }
 
     function withdrawPrize() public {
         refreshTimeConstraints();
-        require(ended);
-        uint winnerTicketNumber = results[0][0];
-        require(msg.sender == players[winnerTicketNumber]);
+        require(currentRound == totalRounds + 1);
+        uint winnerTicket = matches[totalRounds][0];
+        address payable winner = players[winnerTicket]; // TODO
+        require(msg.sender == winner);
         msg.sender.call{value: address(this).balance}("");
     }
 
     function refreshTimeConstraints() public {
         if(block.timestamp > startTime + TIME_FOR_REVEAL) {
-            breakActive = true;
+            breakOngoing = true;
         }
         if(block.timestamp > startTime + TIME_FOR_REVEAL + TIME_FOR_BREAK) {
             startTime =+ TIME_FOR_REVEAL + TIME_FOR_BREAK;
-            breakActive = false;
-            roundsLeft--;
+            breakOngoing = false;
+            currentRound++;
             refreshTimeConstraints();
-        }
-        if(roundsLeft == 0 & block.timestamp > startTime + TIME_FOR_REVEAL) {
-            ended = true;
         }
     }
 
@@ -110,3 +170,8 @@ contract binaryLottery {
     }
 
 }
+
+// TODO public/private, restructure code, comment, copilot suggestions, split into 2 contracts (signup and reveal)
+
+// TODO questions:
+// what is an appropriate time for TIME_FOR_REVEAL and TIME_FOR_BREAK

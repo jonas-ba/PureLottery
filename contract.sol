@@ -167,6 +167,5 @@ contract lottery {
 }
 
 // TODO:
-// https://techgeek628.medium.com/solidity-and-object-oriented-programming-oop-191f8deb8316
 // debug in depth
 // comment and make easier readable

@@ -5,10 +5,10 @@ contract lottery {
 
     struct Ticket {
         address payable player;
-        uint reachedRound;
+        uint highestParticpatedRound;
         bytes32[] hashes;
     }
-    struct Ticket[] public tickets; // tickets[ticketID] returns(Ticket)
+    Ticket[] public tickets; // tickets[ticketID] returns(Ticket)
 
     struct Match {
         uint randomNumberLeft;
@@ -29,6 +29,7 @@ contract lottery {
     uint public constant TIME_FOR_BREAK = 1 minutes;
 
     address public owner;
+    address payable public winner;
 
     constructor(uint numberOfTickets, uint pricePerTicket) {
         totalRounds = log2(numberOfTickets);
@@ -47,20 +48,21 @@ contract lottery {
         return result;
     }
 
-    function signUp(bytes32[] hashes) public payable returns (uint) {
-        soldTickets = tickets.length - refundedTickets.length;
-        require(hashes.length == totalRounds)
+    function signUp(bytes32[] calldata hashes) public payable returns (uint) {
+        uint soldTickets = tickets.length - refundedTickets.length;
+        require(hashes.length == totalRounds);
         require(soldTickets < totalTickets);
         require(msg.value == ticketPrice);
         require(!started);
-        Ticket ticket = Ticket(payable(msg.sender), 0, hashes);
+        Ticket memory newTicket = Ticket(payable(msg.sender), 0, hashes);
         uint ticketNumber;
         if(refundedTickets.length == 0) {
-            ticketnumber = players.length;
-            tickets.push(ticket);
+            ticketNumber = tickets.length;
+            tickets.push(newTicket);
         } else {
-            ticketNumber = redundedTickets.pop();
-            tickets[tickerNumber] = ticket;
+            ticketNumber = refundedTickets[refundedTickets.length-1];
+            refundedTickets.pop();
+            tickets[ticketNumber] = newTicket;
         }
         return ticketNumber;
     }
@@ -82,46 +84,36 @@ contract lottery {
     }
 
     function allTicketsSold() private view returns (bool) {
-        return tickets.length == totalTickets & refundedTickets.length == 0;
+        return tickets.length == totalTickets && refundedTickets.length == 0;
     }
 
     
     function reveal(uint ticketNumber, uint randomNumber, uint nonce) public {
+        // TODO think this through
         refreshTimeConstraints();
         require(!breakOngoing);
-        Ticket ticket = tickets[tickerNumber];
+        Ticket memory ticket = tickets[ticketNumber];
         require(ticket.player == msg.sender);
         require(ticket.hashes[currentRound] == hash(randomNumber, nonce));
 
-
-
-
-
-
-
-        uint round = ticket.round;
-        uint matchID = ticket.matchID;
-        Match lastMatch = getMatch(round, matchID);
-        require(lastMatch.winner == msg.sender);
-
-        Match thisMatch = getMatch(round++, matchID/2);
-        if(matchID % 2 == 0) {
-            uint rndOfOpponent = thisMatch.randomNumber2 = randomNumber;
+        require(isWinner(currentRound, ticketNumber));
+        (uint nextMatchID, bool left) = getMatchID(currentRound + 1, ticketNumber);
+        Match memory nextMatch = matches[currentRound + 1][nextMatchID];
+        if(left) {
+            nextMatch.randomNumberLeft = randomNumber;
         } else {
-            uint rndOfOpponent = thisMatch.randomNumber2 = randomNumber;
+            nextMatch.randomNumberRight = randomNumber;
         }
-        if(rndOfOpponent == 0) {
-            thisMatch.winner = msg.sender;
-        } else if(rndOfOpponent < randomNumber) {
-            thisMatch.winner = msg.sender;
-        } else {
-            thisMatch.winner = players[ticketNumber];
+
+        require(ticket.highestParticpatedRound == currentRound - 1);
+
+        if(currentRound == totalRounds - 1 && isWinner(currentRound, ticketNumber)) {
+            winner = ticket.player;
         }
-        ticket.round = round++;
-        ticket.matchID = matchID/2; // TODO make this more efficient by using memory
+        ticket.highestParticpatedRound = currentRound;
     }
 
-    function getMatchID(uint round, uint ticketID) private pure returns (uint matchID, bool left) {
+    function getMatchID(uint round, uint ticketID) private pure returns (uint, bool) {
         if(round == 0) {
             return (ticketID, ticketID % 2 == 0);
         }
@@ -135,20 +127,15 @@ contract lottery {
             return true;
         }
         (uint matchID, bool left) = getMatchID(round, ticketID);
-        Match match = matches[round][matchID];
-        uint rnd = match.randomNumberLeft 
-        if(left) {
-            return match.randomNumberLeft == 0;
-        } else {
-            return match.randomNumberRight == 0;
-        }
+        Match memory assignedMatch = matches[round][matchID];
+        uint rnd = assignedMatch.randomNumberLeft ^ assignedMatch.randomNumberRight; 
+        bool even = rnd % 2 == 0;
+        return left == even;
     }
 
     function withdrawPrize() public {
         refreshTimeConstraints();
-        require(currentRound == totalRounds + 1);
-        uint winnerTicket = matches[totalRounds][0];
-        address payable winner = players[winnerTicket]; // TODO
+        require(currentRound >= totalRounds);
         require(msg.sender == winner);
         msg.sender.call{value: address(this).balance}("");
     }
@@ -158,7 +145,7 @@ contract lottery {
             breakOngoing = true;
         }
         if(block.timestamp > startTime + TIME_FOR_REVEAL + TIME_FOR_BREAK) {
-            startTime =+ TIME_FOR_REVEAL + TIME_FOR_BREAK;
+            startTime += (TIME_FOR_REVEAL + TIME_FOR_BREAK);
             breakOngoing = false;
             currentRound++;
             refreshTimeConstraints();
@@ -170,8 +157,3 @@ contract lottery {
     }
 
 }
-
-// TODO public/private, restructure code, comment, copilot suggestions, split into 2 contracts (signup and reveal)
-
-// TODO questions:
-// what is an appropriate time for TIME_FOR_REVEAL and TIME_FOR_BREAK

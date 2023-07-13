@@ -1,3 +1,10 @@
+
+// further work: 
+// - Implement arbitrary number of players and arbitrary probabilities (the extended version of the lottery algorithm)
+// - use address instead of ticket number to simplify functions (--> in the revealing process, store the player in the matches)
+
+
+
 pragma solidity >=0.8.2 <0.9.0;
 
 
@@ -12,7 +19,9 @@ contract Lottery {
 
     struct Match {
         uint randomNumberLeft;
+        bool revealedLeft;
         uint randomNumberRight;
+        bool revealedRight;
     }
     mapping (uint => mapping (uint => Match)) public matches; // matches[round][matchID] returns(Match)
 
@@ -23,8 +32,6 @@ contract Lottery {
     uint public startTime;
     bool public started;
     uint public totalRounds;
-    uint public currentRound;
-    bool public breakOngoing;
     uint public constant TIME_FOR_REVEAL = 30 seconds; // default 1 minutes;
     uint public constant TIME_FOR_BREAK = 0; // default 1 minutes;
 
@@ -86,48 +93,51 @@ contract Lottery {
     }
 
     function reveal(uint ticketID, uint randomNumber, uint nonce) public {
-        // TODO problem: if other players revealed before, it somehow influences if a player can also reveal
-        require(started);
-        refreshTimeConstraints();
-        require(!breakOngoing, "Wait until the next round begines");
-        stampTicket(ticketID, hash(randomNumber, nonce));
-        updateMatch(randomNumber, ticketID);
+        (uint currentRound, bool revealingAllowed) = getCurrentRound();
+        require(revealingAllowed, "Wait until the next round begines");
+        checkTicket(ticketID, hash(randomNumber, nonce), currentRound);
+        updateMatch(randomNumber, ticketID, currentRound);
     }
 
-    function stampTicket(uint ticketID, bytes32 rndHash) private {
+    function checkTicket(uint ticketID, bytes32 rndHash, uint currentRound) private {
         Ticket memory ticket = tickets[ticketID];
         require(ticket.hashes[currentRound] == rndHash, 
             "randomNumber and nonce do not match the comitted hash");
         require(ticket.player == msg.sender);
-        require(wonPreviousRound(ticketID));
+        require(currentRound == 0 || isWinner(currentRound-1, ticketID), 
+            "ticket must have won in the previous round");
         require(ticket.highestAdmittedRound == currentRound);
         ticket.highestAdmittedRound++;
         tickets[ticketID] = ticket;
     }
 
-    function wonPreviousRound(uint ticketID) private view returns(bool) {
-        if(currentRound == 0) {
-            return true;
-        } else {
-            return isWinner(currentRound-1, ticketID);
-        }
-    }
-
     function isWinner(uint round, uint ticketID) private view returns (bool) {
+        if(tickets[ticketID].highestAdmittedRound < round+1) {
+            return false;
+        }
         (uint matchID, bool left) = getMatchID(round, ticketID);
         Match memory assignedMatch = matches[round][matchID];
+        // if both players did not reveal, the left player winns
+        if(!assignedMatch.revealedRight) {
+            return left;
+        }
+        if(!assignedMatch.revealedLeft) {
+            return !left;
+        }
         uint rnd = assignedMatch.randomNumberLeft ^ assignedMatch.randomNumberRight; 
         bool even = rnd % 2 == 0;
         return left == even;
     }
 
-    function updateMatch(uint randomNumber, uint ticketID) private {
+    function updateMatch(uint randomNumber, uint ticketID, uint currentRound) private {
         (uint nextMatchID, bool left) = getMatchID(currentRound, ticketID);
         Match storage currentMatch = matches[currentRound][nextMatchID];
         if(left) {
             currentMatch.randomNumberLeft = randomNumber;
+            currentMatch.revealedLeft = true;
         } else {
             currentMatch.randomNumberRight = randomNumber;
+            currentMatch.revealedRight = true;
         }
     }
 
@@ -138,8 +148,7 @@ contract Lottery {
     }
 
     function withdrawPrize(uint ticketID) public {
-        require(started);
-        refreshTimeConstraints();
+        (uint currentRound, ) = getCurrentRound();
         require(currentRound >= totalRounds, "lottery not finished");
         uint finalRound = totalRounds - 1;
         require(isWinner(finalRound, ticketID));
@@ -147,16 +156,13 @@ contract Lottery {
         msg.sender.call{value: address(this).balance}("");
     }
 
-    function refreshTimeConstraints() public {
-        if(block.timestamp > startTime + TIME_FOR_REVEAL) {
-            breakOngoing = true;
-        }
-        if(block.timestamp > startTime + TIME_FOR_REVEAL + TIME_FOR_BREAK) {
-            startTime += (TIME_FOR_REVEAL + TIME_FOR_BREAK);
-            breakOngoing = false;
-            currentRound++;
-            refreshTimeConstraints();
-        }
+    function getCurrentRound() public view returns(uint, bool) {
+        require(started);
+        uint duration = block.timestamp - startTime;
+        uint period = TIME_FOR_REVEAL + TIME_FOR_BREAK;
+        uint currentRound = duration / period;
+        bool revealingAllowed = (duration - (currentRound * period)) <= TIME_FOR_REVEAL;
+        return (currentRound, revealingAllowed);
     }
 
     function hash(uint number, uint nonce) public pure returns (bytes32) {
@@ -164,11 +170,4 @@ contract Lottery {
     }
 
 }
-
-
-// implementation details:
-// cases not considere: if the two finalists do not reveal (or in round round no one reveals), the winner stays undetermined
-// in this case, the left player is chosen
-
-// further work: Implement arbitrary number of players and arbitrary probabilities
 

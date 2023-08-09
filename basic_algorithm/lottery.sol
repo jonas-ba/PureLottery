@@ -1,10 +1,4 @@
 
-// further work: 
-// - Implement arbitrary number of players and arbitrary probabilities (the extended version of the lottery algorithm)
-// - use address instead of ticket number to simplify functions (--> in the revealing process, store the player in the matches)
-
-
-
 pragma solidity >=0.8.2 <0.9.0;
 
 

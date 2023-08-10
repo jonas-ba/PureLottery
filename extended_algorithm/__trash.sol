@@ -198,3 +198,29 @@ contract Queue {
         return last == first;
     }
 }
+
+
+
+/*
+trash collection:
+
+
+struct Match {
+    uint nodeId;
+    address winner;
+    address playerA;
+    address playerB;
+    bool hasRevealedA;
+    bool hasRevealedB;
+    bytes32 commitA;
+    bytes32 commitB;
+    uint sharesA;
+    uint sharesB;
+    uint randomA;
+    uint randomB;
+    uint parentId;
+    //uint childIdA;
+    //uint childIdB;
+}
+
+*/

@@ -1,0 +1,1 @@
+// everyone has the same probability of winning

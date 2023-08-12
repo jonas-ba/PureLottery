@@ -1,200 +1,87 @@
 pragma solidity >=0.8.2 <0.9.0;
 
-contract LeaderElection { // TODO is TournamentTree is StateMachine ???
 
-    // STATE MACHINE
+enum Stage {signup, commit, reveal, end}
+enum SignupMode {limitedShares, limitedTime}
 
-    enum Stage {signup, commit, reveal, end};
+contract StateMachine {
+    uint startTimeOfCurrentStage;
     Stage public stage;
+    SignupMode public signupMode;
+    uint public timeOrShareLimit;
+    uint constant TIME_FOR_COMMIT_SUBMISSION = 1 hours;
+    uint constant TIME_FOR_REVEALS = 10 minutes;
+    uint constant TIME_FOR_REVEAL_BREAKS = 10 minutes;
     Stage public currentRevealLevel;
-    // TIME_FOR_REVEALS
-    // TIME_FOR_REVEAL_BREAKS
-    // TIME_FOR_SIGNUP
-    // TIME_FOR_COMMIT_SUBMISSION
-    // TODO signup mode: max shares, time limit
 
-    modifier atStage(Stages _stage) {
+    constructor(signupMode mode, uint limit) {
+        stage = Stage.signup;
+        signupMode = mode;
+        timeOrShareLimit = limit;
+        startTimeOfCurrentStage = now;
+    }
+    
+    modifier atStage(Stage _stage) {
       require(stage == _stage);
       _;
     }
 
     function nextStage() internal {
-        phase = phase(uint(phase) + 1);
-        // set currentRevealLevel when finishing sign-up stage
+        stage = stage(uint(stage) + 1);
+        startTimeOfCurrentStage = now;
+        (currentRevealLevel, ) = getTournementTreeDimensions();
     }
 
-    modifier timedTransitions() public; // TODO
+    function getTournementTreeDimensions() internal;
 
-
-    
-
-
-
-    uint public totalShares;
-    mapping (address => bytes32[]) private commitments;
-    TournamentTree private tournamentTree;
-
-    constructor() {
-        tournamentTree = new TournamentTree();
-    }
-    
-    // IMPORTANT: Must be overridden in subcontract
-    function signUp(uint shares) public payable timedTransitions atStage(Stage.signup) {
-        tournamentTree.addShares(msg.sender, shares);
-    }
-    // make abstract signUp function and internal addShares function
-
-
-// redundant
-    function resign() public timedTransitions atStage(Stage.signup) {
-        tournamentTree.removePlayer(msg.sender);
-    }
-
-    function commit(bytes32[] hashesForEveryLevel) public timedTransitions atStage(Stage.commit) {
-        // TODO make a check that the number of hashes is correct?
-        hashes[msg.sender] = hashesForEveryLevel;
-    }
-    
-    function reveal(uint randomValue, uint nonce) public timedTransitions atStage(Stage.reveal) {
-        require(hashing(randomVlue, nonce) == commitments[msg.sender][currentRevealLevel]);
-        tournamentTree.competeInMatch(msg.sender, randomValue, currentRevealLevel);
-    }
-
-    function hashing(uint number, uint nonce) public pure returns (bytes32) {
-        return keccak256(abi.encodePacked(number, nonce));
-    }
-    
-    function getWinner() public timedTransitions atStage(Stage.end) returns(address) {
-        return tournamentTree.players[tournamentTree.ROOT_ID];
-    }
-
-    // if we decide to use the simple version (not adjusting random numbers to the exact range)
-    // implement everything concerning the shares here
-
-}
-
-contract Referee {
-    // TODO
-    function decideMatch(TreeNode match, address player, uint randomValue) {
-        // NodeSide is for left and right child
-    }
-}
-
-contract TournamentTree {
-    // TODO can you put everything into one node and then always use mapping[arg].field 
-    // to no write to all fields?
-    mapping (address => uint) private currentNodeOfPlayer;
-    mapping (uint => TreeNode) private treeByNodeId;
-    struct TreeNode {
-        uint nodeId; // TODO why not store a reference instead of the id?
-        uint parentId;
-        uint leftChildId;
-        uint rightChildId;
-        uint level;
-    } 
-    Queue private leaves;
-    uint constant ROOT_ID = 1;
-    mapping (uint => address) private playerOfNode;
-    mapping (uint => uint) private randomNumbersOfNode;
-    mapping (uint => uint) private sharesOfNode;
-    uint treeHeight;
-    
-    constructor() {
-        leaves = new Queue();
-        uint nodeCounter = ROOT_ID;
-    }
-
-    function addShares(address player, uint amount) internal {
-        if(!isInTree(player)) {
-            insertNewPlayer(player);
+    modifier timedTransitions() {
+        if (signupMode = signupMode.limitedShares) {
+            (, uint amountOfShares) = getTournementTreeDimensions();
+            if (stage == Stage.signup && amountOfShares >= timeOrShareLimit) {
+                startTimeOfCurrentStage = now;
+                nextStage();
+            }
         }
-        uint nodeId = furthestNode[player];
-        shares[nodeId] += amount;
-    }
-
-    function isInTree(address player) private return (bool) {
-        return furthestNode[player] != 0;
-    }
-
-    // TODO create object for inserting a new payer
-    function insertNewPlayer(address player) private {
-        // TODO manage shares
-        if(leaves.isEmpty()) {
-            createRoot(player);
-            return;
+        if (signupMode = signupMode.limitedTime) {
+            if (stage == Stage.signup && now >= startTimeOfCurrentStage + timeOrShareLimit) {
+                startTimeOfCurrentStage += timeOrShareLimit;
+                nextStage();
+            }
         }
-        uint parentId = leaves.dequeue();
-        uint parentLevel = tree[parentId].level;
-        (uint leftChildId, uint rightChildId) = sproutNewLeaves(parentId);
-        address otherPlayer = players[parentId];
-        newLeaf(otherPlayer, leftChildId, parentId, parentLevel + 1);
-        newLeaf(player, rightChildId, parentId, parentLevel + 1);
-        if(parantLevel + 1 > maxLevel) {
-            maxLevel = childrenLevel;
+        if (stage == Stage.commit && now >= startTimeOfCurrentStage + TIME_FOR_COMMIT_SUBMISSION) {
+            startTimeOfCurrentStage += TIME_FOR_COMMIT_SUBMISSION;
+            nextStage();
         }
+        if (stage == Stage.reveal && now >= startTimeOfCurrentStage + TIME_FOR_REVEALS) {
+            currentRevealLevel--;
+            startTimeOfCurrentStage += TIME_FOR_REVEALS + TIME_FOR_REVEAL_BREAKS;
+            nextStage();
+        }
+        _;
     }
 
-    function sproutNewLeaves(uint leafId) private returns(uint childLeftId, uint childRightId) {
-        uint leftChildId = nodeCounter++;
-        uint rightChildId = nodeCounter++;
-        tree[parentId].leftChildId = leftChildId;
-        tree[parentId].rightChildId = rightChildId;
-    }
-
-    function newLeaf(address player, uint leafId, uint parentId, uint childrenLevel) private {
-        TreeNode leaf = TreeNode(nodeId, parentId, 0, 0, childrenLevel);
-        tree[leafId] = leaf;
-        currentNode[player] = leafId;
-        players[leftChildId] = player;
-    }
-
-    function createRoot(address player) private {
-        uint rootLevel = 0;
-        TreeNode root = TreeNode(ROOT_ID, 0, 0, 0, rootLevel);
-            currentNode[player] = ROOT_ID;
-            players[ROOT_ID] = player;
-            leaves.enqueue(ROOT_ID);
-            nodeCounter++;
-    }
-
-    function removePlayer(address player) internal returns(uint numberOfShares) {
-        // TODO implement
-    }
-
-    function competeInMatch(player, randomValue, currentStage) internal {
-        // TODO implement
-    }
-
-    function getMaxLevel() internal {
-        return treeHeight;
-    }
-
-    function getRandomNumberRanges(address player) internal returns(uint[]) {
-        uint[] numberRangers;
-        // TODO implement
-    }
-
-    function getLevel(address player) internal returns(uint) {
-        return tree[currentNode[player]].level;
+    modifier canReveal() {
+        require(now < startTimeOfCurrentStage + TIME_FOR_REVEALS);
+        _;
     }
 }
 
 
 contract Queue {
-    mapping (uint => uint) private queue;
+    mapping (uint => TreeNode) private queue;
     uint private first = 1;
     uint private last = 1;
 
-    function enqueue(uint data) public {
+    function enqueue(TreeNode data) public {
         last++;
         queue[uint] = data;
     }
 
-    function dequeue() public returns (uint) {
+    function dequeue() public returns (TreeNode) {
         require(last > first);
         uint data = queue[first];
         first++;
-        return data
+        return data;
     }
 
     function isEmpty() public returns(bool) {
@@ -202,3 +89,180 @@ contract Queue {
     }
 }
 
+
+contract Referee {
+    function competeInMatch(uint randomValue, uint currentRevealLevel) internal {
+        require(currentRevealLevel == getLevel(msg.sender));
+        require(tree[currentNodeOfPlayer[msg.sender]].player == msg.sender);
+        TreeNode previousMatch = currentNodeOfPlayer[player];
+        TreeNode currentMatch = previousMatch.parent;
+        if(opponentHasRevealed(previousMatch)) {
+            if(isLeftNode(previousMatch) == leftPlayerWinns(currentMatch, randomValue)) {
+                currentMatch.player = msg.sender;
+            }
+        } else {
+            currentMatch.player = msg.sender;
+            currentMatch.randomValue = randomValue;
+        }
+        currentNodeOfPlayer[msg.sender] = currentMatch;
+    }
+
+    function leftPlayerWinns (TreeNode currentMatch, uint randomValue) private returns(bool) {
+        uint resultingRandomValue = currentMatch.randomValue ^ randomValue;
+        uint sharesLeftPlayer = currentMatch.leftChild.shares;
+        uint sharesRightPlayer = currentMatch.rightChild.shares;
+        uint result = resultingRandomValue % (sharesLeftPlayer + sharesRightPlayer);
+        return result < sharesLeftPlayer;
+    }
+
+    function opponentHasRevealed(TreeNode previousMatch) private {
+        address opponent;
+        if(previousMatch.parent.leftChild == previousMatch) {
+            opponent = previousMatch.parent.rightChild.player;
+        } else {
+            opponent = previousMatch.parent.leftChild.player;
+        }
+        return currentNodeOfPlayer[opponent] == previousMatch.parent;
+    }
+
+    function isLeftNode(TreeNode childNode) private returns(bool) {
+        return childNode.parent.leftChild == childNode;
+    }
+}
+
+
+contract SharesManager {
+    function getRandomNumberRanges(address player) internal returns(uint[]) {
+        // TODO implement
+    }
+
+    function updateShares(TreeNode leaf, uint amount) internal {
+        // TODO implement
+    }
+
+}
+
+
+struct TreeNode {
+    TreeNode parent;
+    TreeNode leftChild;
+    TreeNode rightChild;
+    uint level;
+    address player;
+    uint randomValue;
+    uint shares;
+}
+
+
+contract TournamentTree is SharesManager, Referee {
+    mapping (address => TreeNode) private currentNodeOfPlayer;
+    Queue private leaves;
+    TreeNode private root;
+    uint internal treeHeight;
+    uint public totalShares;
+    uint private nodeCounter;
+    
+    constructor() {
+        leaves = new Queue();
+    }
+
+    function getTournementTreeDimensions() internal returns (uint numberOfLevels, uint amountOfShares) {
+        return (tournamentTree.getMaxLevel(), totalShares);
+    }
+
+    function addShares(address player, uint amount) internal {
+        if(!isInTree(player)) {
+            insertNewPlayer(player);
+        }
+        currentNodeOfPlayer[player].shares += amount;
+        updateShares(currentNodeOfPlayer[player].parent);
+    }
+
+    function isInTree(address player) private returns(bool) {
+        return currentNodeOfPlayer[player] != 0;
+    }
+
+    function insertNewPlayer(address player) private {
+        if(leaves.isEmpty()) {
+            createRoot(player);
+            return;
+        }
+        TreeNode leftChild = leaves.dequeue();
+        TreeNode parent = tree[nodeCounter++];
+        rightChild = tree[nodeCounter++];
+        parent.level = leftChild.level;
+        leftChild.level++;
+        rightChild.level = leftChild.level;
+        leftChild.parent = parent;
+        rightChild.parent = parent;
+        parent.leftChild = leftChild;
+        parent.rightChild = rightChild;
+        rightChild.player = player;
+        leaves.enqueue(leftChild);
+        leaves.enqueue(rightChild);
+        if(parantLevel + 1 > maxLevel) {
+            maxLevel = childrenLevel;
+        }
+    }
+
+    function createRoot(address player) private {
+        uint rootLevel = 0;
+        tree[0].player = player;
+        tree[0].level = rootLevel;
+        currentNodeOfPlayer[player] = tree[0];
+        leaves.enqueue(tree[0]);
+        nodeCounter++;
+    }
+
+    function removePlayer(address player) internal returns(uint numberOfShares) {
+        tree[currentNodeOfPlayer[player]].shares = 0;
+    }
+
+    function getMaxLevel() internal {
+        return treeHeight;
+    }
+
+    function getLevel(address player) internal returns(uint) {
+        return tree[currentNodeOfPlayer[player]].level;
+    }
+
+}
+
+
+contract LeaderElection is TournamentTree, StateMachine {
+
+    mapping (address => bytes32[]) private commitments;
+    TournamentTree private tournamentTree;
+
+    constructor(Sign mode, uint limit) StateMachine(mode, limit) TournamentTree() {
+        tournamentTree = new TournamentTree();
+    }
+    
+    // override in subcontract
+    function signUp() public payable timedTransitions atStage(Stage.signup) {
+        addShares(msg.sender, 1);
+    }
+
+    // override in subcontract
+    function resign() public timedTransitions atStage(Stage.signup) {
+        removePlayer(msg.sender);
+    }
+
+    function commit(bytes32[] hashesForEveryLevel) public timedTransitions atStage(Stage.commit) {
+        // implement make a check that the number of hashes is correct?
+        hashes[msg.sender] = hashesForEveryLevel;
+    }
+    
+    function reveal(uint randomValue, uint nonce) public timedTransitions atStage(Stage.reveal) canReveal {
+        require(hash(randomVlue, nonce) == commitments[msg.sender][currentRevealLevel]);
+        competeInMatch(randomValue, currentRevealLevel);
+    }
+
+    function hash(uint number, uint nonce) public pure returns (bytes32) {
+        return keccak256(abi.encodePacked(number, nonce));
+    }
+    
+    function getWinner() public timedTransitions atStage(Stage.end) returns(address) {
+        return tournamentTree.players[tournamentTree.ROOT_ID];
+    }
+}

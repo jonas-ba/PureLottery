@@ -3,6 +3,7 @@ pragma solidity >=0.8.2 <0.9.0;
 
 enum Stage {signup, commit, reveal, end}
 
+/*
 struct Tournament {
     uint totalPlayers;
     uint currentRound;
@@ -12,9 +13,23 @@ struct Tournament {
     mapping (address => uint) rounds;
     mapping (address => uint) weights;
     mapping (address => bytes32) commitments; // commitment for next round
-    mapping (uint => mapping (uint => uint)) randomNumbers; //leaves are at round 0
+    mapping (uint => mapping (uint => uint)) randomNumbers; //leaves are at round 0 // TODO only one rnd is stored --> mike one-dimensional
+}
+*/
+
+struct Tournament {
+    uint totalPlayers;
+    uint currentRound;
+    uint totalRounds;
+    mapping (address => uint) positions; // every player is asigned a unique position
+    mapping (uint => mapping (uint => address)) playersTree;
+    mapping (address => uint) rounds; // TODO possible to delete rounds as this information is contained in playersTree
+    mapping (address => uint) weights;
+    mapping (address => bytes32) commitments; // commitment for next round
+    mapping (address => uint) randomNumbers; // stores a player's random number for the current round
 }
 
+// TODO scheme of playersTree
 
 library Math {
 
@@ -33,6 +48,26 @@ library Math {
     }
 }
 
+/*
+library AccessTournament {
+
+
+    // TODO /2^rounds
+    // stores the random number in the current round for the adversary to access later
+    function storeRandomNumber(Tournament storage tournament, address player, uint randomNumber) private {
+        uint round = tournament.rounds[player];
+        uint position = tournament.positions[player];
+        tournament.randomNumbers[round][position/2] = randomNumber;
+    }
+
+// TODO /2^rounds
+    // returns the random number for the current round that the adversary has stored earlier
+    function getAdversaryRandomNumber(Tournament storage tournament, address player) private view returns(uint) {
+        uint round = tournament.rounds[player];
+        uint position = tournament.positions[player];
+        return tournament.randomNumbers[round][position/2];
+    }
+*/
 
 library CreateTournament {
     // adds an additional player to the tournament
@@ -40,13 +75,13 @@ library CreateTournament {
         if(!playerAlreadyIntournament(tournament, player)) {
             tournament.totalPlayers++;
             tournament.positions[player] = tournament.totalPlayers;
-            tournament.players[tournament.totalPlayers] = player;
+            tournament.playersTree[0][tournament.totalPlayers] = player;
         }
     }
 
     // determines if the player has been added already
     function playerAlreadyIntournament(Tournament storage tournament, address player) private view returns(bool) {
-        return tournament.players[tournament.positions[player]] == player;
+        return tournament.playersTree[0][tournament.positions[player]] == player;
     }
 
     // adds weight to a player and hence increases its chance to win
@@ -64,31 +99,35 @@ library CreateTournament {
 
 
 library RunTournament {
-    // determines victory based on a random number
+    using Math for uint;
+   
+    // determines victory for the current round based on a random number
     function compete(Tournament storage tournament, address player, uint randomNumber) internal {
+        require(tournament.currentRound == tournament.rounds[player], "Player is not at the expected level");
+
         if(!hasAdversary(tournament, player)) {
-            tournament.rounds[player]++;
+            incrementPlayerRound(tournament, player);
             return;
         }
 
-        require(tournament.currentRound == tournament.rounds[player], "Player is not at the expected level");
         address adversary = getAdversary(tournament, player);
         if(hasRevealed(tournament, adversary)) {
             if(playerWinsRound(tournament, player, randomNumber)) {
                 undoWin(tournament, adversary);
                 storeWin(tournament, player, adversary);
-                tournament.rounds[player]++;
             }
         } else {
             storeWin(tournament, player, adversary);
-            storeRandomNumber(tournament, player, randomNumber);
+            tournament.randomNumbers[player] = randomNumber;
         }
     }
 
     // at a maximum of one player in every round may have no adversary
     // this player gets into the next round without competing
     function hasAdversary(Tournament storage tournament, address player) private view returns(bool) {
-        return tournament.positions[player] == tournament.totalPlayers;
+        uint currentPosition = tournament.totalPlayers / 2^(tournament.currentRound);
+        bool isLastPosition = tournament.playersTree[currentPosition][tournament.currentRound] == player;
+        return isLastPosition && !currentPosition.even();
     }
 
     // determines if a player has already revealed in the current round
@@ -99,14 +138,14 @@ library RunTournament {
     // determines if a player winns the round
     function playerWinsRound(Tournament storage tournament, address player, uint randomNumber) private view returns(bool) {
         address adversary = getAdversary(tournament, player);
+        require(hasRevealed(tournament, adversary));
         
         uint playerPosition = tournament.positions[player];
-        uint adversaryPosition = getAdversaryPosition(tournament, player);
+        uint adversaryPosition = tournament.positions[adversary];
 
         uint weight = tournament.weights[player];
-        uint totalWeight = tournament.rounds[adversary];
-        require(hasRevealed(tournament, adversary));
-        uint result =  getAdversaryRandomNumber(tournament, player) + randomNumber % totalWeight;
+        uint totalWeight = tournament.weights[adversary];
+        uint result =  tournament.randomNumbers[adversary] + randomNumber % totalWeight;
 
         if (playerPosition < adversaryPosition) {
             return result < weight;
@@ -117,8 +156,13 @@ library RunTournament {
 
     // stores the victory
     function storeWin(Tournament storage tournament, address player, address adversary) private {
-        tournament.weights[player] += tournament.weights[adversary];
-        tournament.rounds[player]++;
+        // TODO getAdversary() --> remove argument
+        if(hasRevealed(tournament, adversary)) {
+            tournament.weights[player] = tournament.weights[adversary];
+        } else {
+            tournament.weights[player] += tournament.weights[adversary];
+        }
+        incrementPlayerRound(tournament, player);
     }
 
     // reverts the victory of the player who revealed first
@@ -127,6 +171,30 @@ library RunTournament {
         tournament.rounds[player]--;
     } 
 
+    // TODO functio for position2^currentRound
+    // uint initialPosition = tournament.positions[player];
+    //    uint currentPosition = initialPosition / (2^round);
+
+    function incrementPlayerRound(Tournament storage tournament, address player) private {
+        uint round = tournament.currentRound;
+        require(round == tournament.rounds[player], "player has not achieved current round");
+        uint initialPosition = tournament.positions[player];
+        uint currentPosition = initialPosition / (2^round);
+        tournament.playersTree[currentPosition][round] = player;
+        tournament.rounds[player]++; 
+    }
+
+    // returns the player's adversary for the current round
+    function getAdversary(Tournament storage tournament, address player) public view returns(address) {
+        uint round = tournament.currentRound;
+        uint initialPosition = tournament.positions[player];
+        uint currentPosition = initialPosition / (2^round);
+        address adversary = tournament.playersTree[currentPosition][round];
+        require(adversary != player);
+        require(adversary != address(0));
+        return adversary;
+    }
+/*
     // TODO there must be a loop --> Is it actually possible to calculate without additional field in the tournament struct???
     // --> this function has to be eliminated and replaced
     // returns the adversary's position of the current round
@@ -146,25 +214,12 @@ library RunTournament {
         uint position = getAdversaryPosition(tournament, player);
         return tournament.players[position];
     }
-
-    // stores the random number in the current round for the adversary to access later
-    function storeRandomNumber(Tournament storage tournament, address player, uint randomNumber) private {
-        uint round = tournament.rounds[player];
-        uint position = tournament.positions[player];
-        tournament.randomNumbers[round][position/2] = randomNumber;
-    }
-
-    // returns the random number for the current round that the adversary has stored earlier
-    function getAdversaryRandomNumber(Tournament storage tournament, address player) private view returns(uint) {
-        uint round = tournament.rounds[player];
-        uint position = tournament.positions[player];
-        return tournament.randomNumbers[round][position/2];
-    }
+*/
 
     // determines the single winner of the tournament
-    function isTournamentWinner(Tournament storage tournament, address player) internal view returns(bool) {
+    function getTournamentWinner(Tournament storage tournament) internal view returns(address) {
         require(tournament.currentRound >= tournament.totalRounds);
-        return tournament.rounds[player] == tournament.totalRounds;
+        return tournament.playersTree[0][tournament.totalRounds];
     }
 }
 
@@ -208,7 +263,7 @@ library hashVerifier {
 
 library RndNumberSubmission {
     using Math for uint;
-
+/*
     function getRndRanges(Tournament storage tournament, address player) internal view 
     returns(uint[] memory ranges) {
         uint position = tournament.positions[player];
@@ -219,11 +274,11 @@ library RndNumberSubmission {
         }
         return ranges;
     }
-
+*/
     function getNumberOfRounds(uint numberOfParticipants) private pure returns(uint) {
-        return numberOfParticipants.log2();
+        return numberOfParticipants.log2(); // TODO plus 1 because there might be arbitrary number of players
     }
-
+/*
     function sumOfLeaves(Tournament storage tournament, uint position, uint level) private view 
     returns(uint sum){
         (uint start, uint end) = getRange(position, level);
@@ -232,7 +287,7 @@ library RndNumberSubmission {
         }
         return sum;
     }
-
+*/
     function getRange(uint position, uint level) private pure returns(uint start, uint end) {
         start = position - position % (2 ** level);
         end = start + 2 ** level - 1;
@@ -242,7 +297,7 @@ library RndNumberSubmission {
 
 
 abstract contract LeaderElection {
-    Tournament internal tournamenttournament;
+    Tournament internal tournament;
     uint public pricePerTicket;
     uint public totalTickets;
     uint public ticketsSold;
@@ -276,16 +331,16 @@ abstract contract LeaderElection {
             startTimeOfCurrentStage += TIME_FOR_COMMIT_SUBMISSION;
             nextStage();
         } else if (stage == Stage.reveal && block.timestamp >= startTimeOfCurrentStage + TIME_FOR_REVEALS) {
-            tournamenttournament.currentRound++;
+            tournament.currentRound++;
             startTimeOfCurrentStage += TIME_FOR_REVEALS + TIME_FOR_REVEAL_BREAKS;
-            if(tournamenttournament.currentRound > tournamenttournament.totalRounds) {
+            if(tournament.currentRound > tournament.totalRounds) {
                 nextStage();
             }
         }
         _;
         if (stage == Stage.signup && ticketsSold >= totalTickets) {
             startTimeOfCurrentStage = block.timestamp;
-            tournamenttournament.totalRounds = Math.log2(tournamenttournament.totalPlayers);
+            tournament.totalRounds = Math.log2(tournament.totalPlayers);
             nextStage();
         }
     }
@@ -314,23 +369,23 @@ contract Lottery is LeaderElection {
     timedTransitions atStage(Stage.signup) {
         require(ticketsSold + numberOfTickets <= totalTickets);
         require(numberOfTickets*pricePerTicket == msg.value);
-        tournamenttournament.addPlayer(msg.sender);
-        tournamenttournament.addPoints(msg.sender, numberOfTickets);
+        tournament.addPlayer(msg.sender);
+        //tournament.addPoints(msg.sender, numberOfTickets);
         ticketsSold += numberOfTickets;
     }
 
     function resign() public payable 
     timedTransitions atStage(Stage.signup) returns(uint numberOfTickets) {
-        numberOfTickets = tournamenttournament.removePoints(msg.sender);
+        numberOfTickets = tournament.removeWeight(msg.sender);
         (bool success, ) = msg.sender.call{value: numberOfTickets*pricePerTicket}("");
         require(success);
     }
-
+/*
     function getRandomNumberRanges() public view 
     atStage(Stage.commit) returns(uint[] memory ranges) {
-        return tournamenttournament.getRndRanges(msg.sender);
+        return tournament.getRndRanges(msg.sender);
     }
-
+*/
     // notice to the user: Only execute this function locally
     // otherwise it may reveal your secret random numbers
     function generateHashes(uint[] calldata randomNumbers, uint[] calldata nonces) 
@@ -340,17 +395,17 @@ contract Lottery is LeaderElection {
 
     function commit(bytes32 hashtournamentRoot) 
     timedTransitions atStage(Stage.commit) public {
-        tournamenttournament.commit(msg.sender, hashtournamentRoot);
+        tournament.commit(msg.sender, hashtournamentRoot);
     }
 
     function reveal(bytes32[] memory hashes, uint randomNumber, uint nonce) 
     timedTransitions atStage(Stage.reveal) public {
-        require(tournamenttournament.verifyHashtournament(msg.sender, hashes, randomNumber, nonce));
-        tournamenttournament.compete(msg.sender, randomNumber);
+        require(tournament.verifyHashtournament(msg.sender, hashes, randomNumber, nonce));
+        tournament.compete(msg.sender, randomNumber);
     }
 
     function payout() public payable timedTransitions atStage(Stage.end) {
-        require(tournamenttournament.isTournamentWinner(msg.sender));
+        require(tournament.getTournamentWinner() == msg.sender);
         msg.sender.call{value: address(this).balance}("");
     }
 

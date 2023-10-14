@@ -1,7 +1,7 @@
 pragma solidity >=0.8.2 <0.9.0;
 import "./leader_election.sol";
 
-contract Test is TournamentTree {
+contract Test is LeaderElection {
 
     event Log(string message, uint number);
     event PlayerLog(string message, address player, uint number);
@@ -9,7 +9,13 @@ contract Test is TournamentTree {
 
     constructor() TournamentTree() {}
 
+    function cleanTree() private {
+        // TODO
+    }
+
     function test1() public {
+        // 2 players
+
         cleanTree();
         address player1 = address(uint160(1));
         address player2 = address(uint160(2));
@@ -26,14 +32,10 @@ contract Test is TournamentTree {
         emit PlayerArrayLog("player random number ranges: ", player3, getRandomNumberRanges(player3));
     }
 
-    // TODOs
-    // test function removePlayer(address player)
-    // test competeInMatch(uint randomValue, uint currentRevealLevel)
-
-    function cleanTree() private {
-        for(uint i = ROOT_ID; i<= uniqueNodeId; i++) {
-            treeNodeById[i] = TreeNode(0, 0, 0, 0, 0, address(uint160(0)), 0, 0);
-        }
+    function test2() public {
+        // 3 players
     }
+
+    
     
 }

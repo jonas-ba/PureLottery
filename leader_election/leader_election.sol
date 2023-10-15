@@ -3,36 +3,34 @@ pragma solidity >=0.8.2 <0.9.0;
 
 enum Stage {signup, commit, reveal, end}
 
-/*
 struct Tournament {
     uint totalPlayers;
     uint currentRound;
     uint totalRounds;
     mapping (address => uint) positions; // every player is asigned a unique position
-    mapping (uint => address) players;
-    mapping (address => uint) rounds;
-    mapping (address => uint) weights;
-    mapping (address => bytes32) commitments; // commitment for next round
-    mapping (uint => mapping (uint => uint)) randomNumbers; //leaves are at round 0 // TODO only one rnd is stored --> mike one-dimensional
+    mapping (uint => mapping (uint => address)) playersTree; // playersTree[position][round]
+    mapping (address => uint) weights; // more weight gives higher probability of winning
+    mapping (address => bytes32) commitments; // player's commitment for next round
+    mapping (address => uint) randomNumbers; // player's random number for the current round
 }
+
+/* 
+Scheme of playersTree for 5 players:
+
+                                                 __________winner___________
+round 2                                         /                           \
+                                 _position 0/1/2/3__                        position 4
+round 1                         /                   \                           |
+                    position 0/1                    position 2/3            position 4
+round 0             /           \                   /       \                   |
+            position 0      position 1      position 2      position 3      position 4
+
 */
 
-struct Tournament {
-    uint totalPlayers;
-    uint currentRound;
-    uint totalRounds;
-    mapping (address => uint) positions; // every player is asigned a unique position
-    mapping (uint => mapping (uint => address)) playersTree;
-    mapping (address => uint) rounds; // TODO possible to delete rounds as this information is contained in playersTree
-    mapping (address => uint) weights;
-    mapping (address => bytes32) commitments; // commitment for next round
-    mapping (address => uint) randomNumbers; // stores a player's random number for the current round
-}
-
-// TODO scheme of playersTree
 
 library Math {
 
+    // computes the logarithm base 2 and rounds up to the next integer
     function log2(uint x) public pure returns (uint) {
         uint result = 0;
         uint powerOfTwo = 1;
@@ -48,52 +46,36 @@ library Math {
     }
 }
 
-/*
-library AccessTournament {
-
-
-    // TODO /2^rounds
-    // stores the random number in the current round for the adversary to access later
-    function storeRandomNumber(Tournament storage tournament, address player, uint randomNumber) private {
-        uint round = tournament.rounds[player];
-        uint position = tournament.positions[player];
-        tournament.randomNumbers[round][position/2] = randomNumber;
-    }
-
-// TODO /2^rounds
-    // returns the random number for the current round that the adversary has stored earlier
-    function getAdversaryRandomNumber(Tournament storage tournament, address player) private view returns(uint) {
-        uint round = tournament.rounds[player];
-        uint position = tournament.positions[player];
-        return tournament.randomNumbers[round][position/2];
-    }
-*/
 
 library CreateTournament {
     // adds an additional player to the tournament
-    function addPlayer(Tournament storage tournament, address player) internal {
-        if(!playerAlreadyIntournament(tournament, player)) {
+    function addPlayer(Tournament storage tournament, address player) public {
+        if(!playerAlreadyAdded(tournament, player)) {
             tournament.totalPlayers++;
             tournament.positions[player] = tournament.totalPlayers;
-            tournament.playersTree[0][tournament.totalPlayers] = player;
+            tournament.playersTree[tournament.totalPlayers][0] = player;
         }
     }
 
     // determines if the player has been added already
-    function playerAlreadyIntournament(Tournament storage tournament, address player) private view returns(bool) {
-        return tournament.playersTree[0][tournament.positions[player]] == player;
+    function playerAlreadyAdded(Tournament storage tournament, address player) private view returns(bool) {
+        return tournament.playersTree[tournament.positions[player]][0] == player;
     }
 
     // adds weight to a player and hence increases its chance to win
-    function addWeight(Tournament storage tournament, address player, uint points) internal {
+    function addWeight(Tournament storage tournament, address player, uint points) public {
         tournament.weights[player]+= points;
     }
 
     // removes a players weight (and hence also eliminates its chance to win)
-    function removeWeight(Tournament storage tournament, address player) internal returns(uint) {
+    function removeWeight(Tournament storage tournament, address player) public returns(uint) {
         uint weight = tournament.weights[player];
         tournament.weights[player] = 0;
         return weight;
+    }
+
+    function setTotalRounds(Tournament storage tournament) private {
+        tournament.totalRounds = Math.log2(tournament.totalPlayers);
     }
 }
 
@@ -103,9 +85,9 @@ library RunTournament {
    
     // determines victory for the current round based on a random number
     function compete(Tournament storage tournament, address player, uint randomNumber) internal {
-        require(tournament.currentRound == tournament.rounds[player], "Player is not at the expected level");
+        require(playerAchievedRound(tournament, player, tournament.currentRound), "player has not achieved current round");
 
-        if(!hasAdversary(tournament, player)) {
+        if(hasNoAdversary(tournament, player)) {
             incrementPlayerRound(tournament, player);
             return;
         }
@@ -124,15 +106,10 @@ library RunTournament {
 
     // at a maximum of one player in every round may have no adversary
     // this player gets into the next round without competing
-    function hasAdversary(Tournament storage tournament, address player) private view returns(bool) {
-        uint currentPosition = tournament.totalPlayers / 2^(tournament.currentRound);
+    function hasNoAdversary(Tournament storage tournament, address player) private view returns(bool) {
+        uint currentPosition = getPosition(tournament.totalPlayers, tournament.currentRound);
         bool isLastPosition = tournament.playersTree[currentPosition][tournament.currentRound] == player;
-        return isLastPosition && !currentPosition.even();
-    }
-
-    // determines if a player has already revealed in the current round
-    function hasRevealed(Tournament storage tournament, address player) private view returns(bool) {
-        return tournament.rounds[player] > tournament.currentRound;
+        return isLastPosition && currentPosition.even();
     }
 
     // determines if a player winns the round
@@ -156,7 +133,6 @@ library RunTournament {
 
     // stores the victory
     function storeWin(Tournament storage tournament, address player, address adversary) private {
-        // TODO getAdversary() --> remove argument
         if(hasRevealed(tournament, adversary)) {
             tournament.weights[player] = tournament.weights[adversary];
         } else {
@@ -168,56 +144,45 @@ library RunTournament {
     // reverts the victory of the player who revealed first
     function undoWin(Tournament storage tournament, address player) private {
         delete tournament.weights[player];
-        tournament.rounds[player]--;
     } 
 
-    // TODO functio for position2^currentRound
-    // uint initialPosition = tournament.positions[player];
-    //    uint currentPosition = initialPosition / (2^round);
-
     function incrementPlayerRound(Tournament storage tournament, address player) private {
-        uint round = tournament.currentRound;
-        require(round == tournament.rounds[player], "player has not achieved current round");
-        uint initialPosition = tournament.positions[player];
-        uint currentPosition = initialPosition / (2^round);
-        tournament.playersTree[currentPosition][round] = player;
-        tournament.rounds[player]++; 
+        require(playerAchievedRound(tournament, player, tournament.currentRound), "player has not achieved current round");
+        uint nextRound = tournament.currentRound + 1;
+        uint startingPosition = tournament.positions[player];
+        uint position = getPosition(startingPosition, nextRound);
+        tournament.playersTree[position][nextRound] = player;
     }
 
     // returns the player's adversary for the current round
     function getAdversary(Tournament storage tournament, address player) public view returns(address) {
         uint round = tournament.currentRound;
-        uint initialPosition = tournament.positions[player];
-        uint currentPosition = initialPosition / (2^round);
+        uint startingPosition = tournament.positions[player];
+        uint currentPosition = getPosition(startingPosition, round);
         address adversary = tournament.playersTree[currentPosition][round];
         require(adversary != player);
         require(adversary != address(0));
         return adversary;
     }
-/*
-    // TODO there must be a loop --> Is it actually possible to calculate without additional field in the tournament struct???
-    // --> this function has to be eliminated and replaced
-    // returns the adversary's position of the current round
-    function getAdversaryPosition(Tournament storage tournament, address player) private view returns(uint) {
-        uint adversaryPosition;
-        uint playerPosition = tournament.positions[player];
-        if(playerPosition % 2 == 0) {
-            adversaryPosition = playerPosition + 1;
-        } else {
-            adversaryPosition = playerPosition - 1;
-        }
-        return adversaryPosition;
+ 
+    // get the position in the current round
+    function getPosition(uint startingPosition, uint round) private pure returns(uint) {
+        return startingPosition / (2^round);
     }
 
-    // returns the adversary in the current round
-    function getAdversary(Tournament storage tournament, address player) private view returns(address) {
-        uint position = getAdversaryPosition(tournament, player);
-        return tournament.players[position];
+    // determines if a player has already revealed in the current round
+    function hasRevealed(Tournament storage tournament, address player) private view returns(bool) {
+        return playerAchievedRound(tournament, player, tournament.currentRound + 1);
     }
-*/
+
+    function playerAchievedRound(Tournament storage tournament, address player, uint round) private view returns(bool) {
+        uint startingPosition = tournament.positions[player];
+        uint currentPosition = getPosition(startingPosition, round);
+        return tournament.playersTree[currentPosition][round] == player;
+    }
 
     // determines the single winner of the tournament
-    function getTournamentWinner(Tournament storage tournament) internal view returns(address) {
+    function getTournamentWinner(Tournament storage tournament) public view returns(address) {
         require(tournament.currentRound >= tournament.totalRounds);
         return tournament.playersTree[0][tournament.totalRounds];
     }
@@ -278,6 +243,7 @@ library RndNumberSubmission {
     function getNumberOfRounds(uint numberOfParticipants) private pure returns(uint) {
         return numberOfParticipants.log2(); // TODO plus 1 because there might be arbitrary number of players
     }
+    // TODO function in CreateTournament written
 /*
     function sumOfLeaves(Tournament storage tournament, uint position, uint level) private view 
     returns(uint sum){

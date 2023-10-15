@@ -373,6 +373,5 @@ contract Lottery is LeaderElection {
         require(tournament.getTournamentWinner() == msg.sender);
         msg.sender.call{value: address(this).balance}("");
     }
-
 }
 

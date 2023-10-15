@@ -9,6 +9,11 @@ contract Test is LeaderElection {
 
     constructor() TournamentTree() {}
 
+    // Remove this function after testing
+    function next() public {
+        nextStage();
+    }
+
     function cleanTree() private {
         // TODO
     }

@@ -75,7 +75,7 @@ library CreateTournament {
     }
     
     // set the number of rounds, has to be called once before tournament start
-    function setTotalRounds(Tournament storage tournament) private {
+    function setTotalRounds(Tournament storage tournament) public {
         tournament.totalRounds = Math.log2(tournament.totalPlayers);
     }
 }
@@ -116,6 +116,7 @@ library RunTournament {
     // determines if a player winns the round
     function playerWinsRound(Tournament storage tournament, address player, uint randomNumber) private view returns(bool) {
         address adversary = getAdversary(tournament, player);
+// TODO consider if adversary = 0
         require(hasRevealed(tournament, adversary));
         
         uint playerPosition = tournament.positions[player];
@@ -157,14 +158,18 @@ library RunTournament {
     }
 
     // returns the player's adversary for the current round
-    function getAdversary(Tournament storage tournament, address player) public view returns(address) {
+    function getAdversary(Tournament storage tournament, address player) public view returns(address) {      
         uint round = tournament.currentRound;
         uint startingPosition = tournament.positions[player];
         uint currentPosition = getPosition(startingPosition, round);
-        address adversary = tournament.playersTree[currentPosition][round];
-        require(adversary != player);
-        require(adversary != address(0));
-        return adversary;
+
+        uint left = currentPosition - currentPosition%2;
+        uint right = left + 1;
+        if(currentPosition == left) {
+            return tournament.playersTree[right][round];
+        } else {
+            return tournament.playersTree[left][round];
+        }
     }
  
     // get the position in the current round
@@ -192,89 +197,58 @@ library RunTournament {
 }
 
 
-// _______________________________
-/*
-            root
-        /    |    \
-      hash0 hash1 hash2
-      /  \   
-    rnd nonce   
-*/
-/*
-library hashVerifier {
-
-    function commit(Tournament storage tournament, address player, bytes32 commitment) internal {
-        tournament.commitments[player] = commitment;
-    }
-
-    function verifyHashtree(Tournament storage tournament, address player, bytes32[] memory hashes, uint rnd, uint nonce) 
-    internal view returns(bool) {
-        bytes32 root = tournament.commitments[player];
-        bool rootVerification = keccak256(abi.encodePacked(hashes)) == root;
-        bool branchVerification = keccak256(abi.encodePacked(rnd, nonce)) == hashes[tournament.currentRound];
-        return rootVerification && branchVerification;
-    }
-
-    function generateHashtree(uint[] calldata randomNumbers, uint[] calldata nonces) internal pure 
-    returns(bytes32 root, bytes32[] memory hashes) {
-        require(randomNumbers.length <= nonces.length, "Number of random numbers and nonces must be equal");
-        uint length = randomNumbers.length;
-        hashes = new bytes32[](length);
-        for(uint i = 0; i < length; i++) {
-            hashes[i] = (keccak256(abi.encodePacked(randomNumbers[i], nonces[i])));
-        }
-        for(uint i = 0; i < length; i++) {
-            root = keccak256(abi.encodePacked(root, hashes[i]));
-        }
-        return (root, hashes);
-    }   
-}
-*/ 
-
 library RndSubmission {
     using Math for uint;
+
+/*  Example: Finding the range for node B
+    The weights of nodes A, B, C and D must be summed up
+
+            ABCD                currentRound+2
+            /   \
+          AB     CD             currentRound+1
+        /   |   |   \           
+        A  |B|  C   D           currentRound
+
+    To find the sum of weights, we have to go up in the tree hierachy and find the position of node ABCD
+*/
 
     // returns the range n to chose the random number
     // 0 =< random_number < n
     function getRndRange(Tournament storage tournament, address player) internal view returns(uint) {
-// TODO implement
-// muss 2 Knoten höher gehen
+        uint currentRound = tournament.currentRound;
+        require(currentRound <= tournament.totalRounds - 2);
+        uint startingPosition = tournament.positions[player];
+        uint round = currentRound + 2;
+        uint position = startingPosition / (2^(currentRound + 2));
+        return getWeight(tournament, position, round);
     }
 
-    function getRange(uint position, uint level) private pure returns(uint start, uint end) {
-        start = position - position % (2 ** level);
-        end = start + 2 ** level - 1;
-        return (start, end);
-    } 
+    function getWeight(Tournament storage tournament, uint position, uint round) private view returns(uint) {
+        uint weight;
+        (uint left, uint right) = getChildren(position);
 
-
-/*
-    function getRndRanges(Tournament storage tournament, address player) internal view 
-    returns(uint[] memory ranges) {
-        uint position = tournament.positions[player];
-        uint levels = getNumberOfRounds(tournament.totalPlayers);
-        ranges = new uint[](levels);
-        for(uint level = 0; level < levels; level++) {
-            ranges[level] = sumOfLeaves(tournament, position, level);
+        address leftChild = tournament.playersTree[left][round-1];
+        if(leftChild != address(0)) {
+            weight += tournament.weights[leftChild];
+        } else {
+            if(round == 0) return 0;
+            weight += getWeight(tournament, left, round-1);
         }
-        return ranges;
-    }
 
-    function getNumberOfRounds(uint numberOfParticipants) private pure returns(uint) {
-        return numberOfParticipants.log2(); // TODO plus 1 because there might be arbitrary number of players
-    }
-*/
-
-/*
-    function sumOfLeaves(Tournament storage tournament, uint position, uint level) private view 
-    returns(uint sum){
-        (uint start, uint end) = getRange(position, level);
-        for(uint i = start; i <= end; i++) {
-            sum += tournament.weights[tournament.players[i]];
+        address rightChild = tournament.playersTree[right][round-1];
+        if(rightChild != address(0)) {
+            weight += tournament.weights[rightChild];
+        } else {
+            if(round == 0) return 0;
+            weight += getWeight(tournament, right, round-1);
         }
-        return sum;
+
+        return weight;
     }
-*/
+
+    function getChildren(uint position) private pure returns(uint, uint) {
+        return (position*2, position*2+1);
+    }
 }
 
 
@@ -290,7 +264,6 @@ abstract contract LeaderElection {
 
     uint stageStartTime;
     Stage public stage;
-    //uint constant TIME_FOR_COMMIT_SUBMISSION = 1 hours;
     uint constant SUBMISSION_INTERVAL = 10 minutes;
     uint constant BREAK_INTERVAL = 10 minutes;
     bool initialCommitRound = true;
@@ -299,36 +272,6 @@ abstract contract LeaderElection {
         stage = Stage.signup;
         stageStartTime = block.timestamp;
     }
-/*
-    modifier atStage(Stage _stage) {
-      require(stage == _stage, "Not at expected stage");
-      if(stage == Stage.reveal) {
-          require(canReveal());
-      }
-      _;
-    }
-*/
-/*
-    modifier timedTransitions() {
-        // TODO make timedTransition as infividual modifier for every function?
-        if (stage == Stage.commit && (block.timestamp >= stageStartTime + TIME_FOR_COMMIT_SUBMISSION)) {
-            stageStartTime += TIME_FOR_COMMIT_SUBMISSION;
-            nextStage();
-        } else if (stage == Stage.reveal && block.timestamp >= stageStartTime + TIME_FOR_REVEALS) {
-            tournament.currentRound++;
-            stageStartTime += TIME_FOR_REVEALS + TIME_FOR_REVEAL_BREAKS;
-            if(tournament.currentRound > tournament.totalRounds) {
-                nextStage();
-            }
-        }
-        _;
-        if (stage == Stage.signup && ticketsSold >= totalTickets) {
-            stageStartTime = block.timestamp;
-            tournament.totalRounds = Math.log2(tournament.totalPlayers);
-            nextStage();
-        }
-    }
-*/
 
     modifier signUpStage() {
         require(stage == Stage.signup, "Not at sign-up stage");
@@ -371,10 +314,6 @@ abstract contract LeaderElection {
         stageStartTime = block.timestamp;
     }
 
-    function commit(address player, bytes32 commitment) internal {
-        tournament.commitments[player] = commitment;
-    }
-
     // only execute this function locally to prevent miners reading your secrets!
     function hash(uint randomNumber, uint nonce) public pure returns(bytes32) {
         return keccak256(abi.encodePacked(randomNumber, nonce));
@@ -393,15 +332,17 @@ contract Lottery is LeaderElection {
         
     }
 
+    // signs the player up for the leader election
     // can also be used to add weight
     function signup(uint numberOfTickets) public payable signUpStage {
         require(ticketsSold + numberOfTickets <= totalTickets);
         require(numberOfTickets*pricePerTicket == msg.value);
         tournament.addPlayer(msg.sender);
-        //tournament.addPoints(msg.sender, numberOfTickets);
+        tournament.addWeight(msg.sender, numberOfTickets);
         ticketsSold += numberOfTickets;
     }
 
+    // quit from the lottery and get a refund
     function resign() public payable signUpStage returns(uint numberOfTickets) {
         numberOfTickets = tournament.removeWeight(msg.sender);
         (bool success, ) = msg.sender.call{value: numberOfTickets*pricePerTicket}("");
@@ -413,26 +354,6 @@ contract Lottery is LeaderElection {
     function getRandomNumberRange() public view returns(uint) {
         return tournament.getRndRange(msg.sender);
     }
-
-/*
-    // notice to the user: Only execute this function locally
-    // otherwise it may reveal your secret random numbers
-    function generateHashes(uint[] calldata randomNumbers, uint[] calldata nonces) public pure returns(bytes32 root, bytes32[] memory hashes) {
-        return hashVerifier.generateHashtournament(randomNumbers, nonces);
-    }
-*/
-
-/*
-    function commit(bytes32 hashedRnd) commitRevealStage public {
-        tournament.commit(msg.sender, hashtournamentRoot);
-    }
-
-    function reveal(bytes32[] memory hashes, uint randomNumber, uint nonce) 
-    timedTransitions atStage(Stage.reveal) public {
-        require(tournament.verifyHashtournament(msg.sender, hashes, randomNumber, nonce));
-        tournament.compete(msg.sender, randomNumber);
-    }
-*/
 
     // reveals the player's random number of current round and participates in the tournament
     // at the same time, commitment for the next round has to be submitted
@@ -447,6 +368,7 @@ contract Lottery is LeaderElection {
         tournament.compete(player, randomNumber);
     }
 
+    // the winner can withdraw the prize
     function payout() public payable endStage {
         require(tournament.getTournamentWinner() == msg.sender);
         msg.sender.call{value: address(this).balance}("");

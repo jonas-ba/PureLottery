@@ -1,45 +1,42 @@
 pragma solidity >=0.8.2 <0.9.0;
 import "./leader_election.sol";
 
-contract Test is LeaderElection {
+contract Test {
+    using CreateTournament for Tournament;
+    using RunTournament for Tournament;
+    using RndSubmission for Tournament;
 
     event Log(string message, uint number);
     event PlayerLog(string message, address player, uint number);
     event PlayerArrayLog(string message, address player, uint[] array);
 
-    constructor() TournamentTree() {}
-
-    // Remove this function after testing
-    function next() public {
-        nextStage();
+    // create tree with n players with equal shares
+    function createTournament(uint playerCount) public returns(Tournament) {
+        Tournament public tournament;
+        for (uint i = 0; i < playerCount; i++) {
+            tournament.addPlayer(player(i));
+            addShares(player(i), 1);
+        }
+        tournament.setTotalRounds();
+        emit Log("tree height: ", tournament.totalRounds);
+        return tournament;
     }
 
-    function cleanTree() private {
-        // TODO
+    function player(uint number) private pure returns(address) {
+        return address(uint160(number));
     }
 
+    // Test with 2 players
     function test1() public {
-        // 2 players
-
-        cleanTree();
-        address player1 = address(uint160(1));
-        address player2 = address(uint160(2));
-        address player3 = address(uint160(3));
-        addShares(player1, 1);
-        addShares(player2, 1);
-        addShares(player3, 1);
-        emit Log("tree height: ", treeHeight);
-        emit PlayerLog("player level: ", player1, getLevel(player1));
-        emit PlayerLog("player level: ", player2, getLevel(player2));
-        emit PlayerLog("player level: ", player3, getLevel(player3));
-        emit PlayerArrayLog("player random number ranges: ", player1, getRandomNumberRanges(player1));
-        emit PlayerArrayLog("player random number ranges: ", player2, getRandomNumberRanges(player2));
-        emit PlayerArrayLog("player random number ranges: ", player3, getRandomNumberRanges(player3));
+        Tournament public tournament = createTournament(2);
+        tournament.compete(player(1), 0);
+        tournament.compete(player(2), 0);
+        tournament.currentRound++;
+        address winner = tournament.getTournamentWinner();
+        emit PlayerLog("winner and total weight: ", winner, tournament.weights[winner]);
     }
 
-    function test2() public {
-        // 3 players
-    }
+
 
     
     

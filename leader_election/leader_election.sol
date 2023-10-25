@@ -51,9 +51,9 @@ library CreateTournament {
     // adds an additional player to the tournament
     function addPlayer(Tournament storage tournament, address player) public {
         if(!playerAlreadyAdded(tournament, player)) {
-            tournament.totalPlayers++;
             tournament.positions[player] = tournament.totalPlayers;
             tournament.playersTree[tournament.totalPlayers][0] = player;
+            tournament.totalPlayers++;
         }
     }
 
@@ -84,10 +84,32 @@ library CreateTournament {
 library RunTournament {
     using Math for uint;
    
+/*
+Cases:
+10 only player1 reveals
+    player1 moves up one round in the tournement tree
+    the weight of palyer1's adversary is added to player1's weight
+2) only player2 reveals
+    player1 moves up one round in the tournement tree
+    the weight of palyer1's adversary is added to player1's weight
+3) player2 reveals after player1 already revealed, player1 wins
+    nothing in the tournament tree will change
+4) player2 reveals after player1 already revealed, player2 wins
+    player2 moves up one round in the tournement tree and overrides player1
+    player2's weight is set to player1's weight 
+    (as player1's weight already includes the form weight of player2)
+    player1's weight is deleted
+5) player1 reveals, then player 2 reveals, then player1/2 reveals again
+    This is equivalent to cases 3) and 4)
+    TODO this can be eploited as a "weight-increase attack"
+
+*/
+   
     // determines victory for the current round based on a random number
     function compete(Tournament storage tournament, address player, uint randomNumber) internal {
-        require(playerAchievedRound(tournament, player, tournament.currentRound), "player has not achieved current round");
-
+        require(isInRound(tournament, player, tournament.currentRound), "player has not achieved current round");
+// TODO consider if adversary = 0 (potential adversaries did not reveal) --> player winns automatically
+// TODO what about summing up weights if adversary does not reveal?  
         if(hasNoAdversary(tournament, player)) {
             incrementPlayerRound(tournament, player);
             return;
@@ -116,9 +138,7 @@ library RunTournament {
     // determines if a player winns the round
     function playerWinsRound(Tournament storage tournament, address player, uint randomNumber) private view returns(bool) {
         address adversary = getAdversary(tournament, player);
-// TODO consider if adversary = 0
         require(hasRevealed(tournament, adversary));
-        
         uint playerPosition = tournament.positions[player];
         uint adversaryPosition = tournament.positions[adversary];
 
@@ -150,7 +170,6 @@ library RunTournament {
 
     // elevates the player into the next round
     function incrementPlayerRound(Tournament storage tournament, address player) private {
-        require(playerAchievedRound(tournament, player, tournament.currentRound), "player has not achieved current round");
         uint nextRound = tournament.currentRound + 1;
         uint startingPosition = tournament.positions[player];
         uint position = getPosition(startingPosition, nextRound);
@@ -179,11 +198,11 @@ library RunTournament {
 
     // determines if a player has already revealed in the current round
     function hasRevealed(Tournament storage tournament, address player) private view returns(bool) {
-        return playerAchievedRound(tournament, player, tournament.currentRound + 1);
+        return isInRound(tournament, player, tournament.currentRound + 1);
     }
 
     // check if a player has reached a certain round
-    function playerAchievedRound(Tournament storage tournament, address player, uint round) private view returns(bool) {
+    function isInRound(Tournament storage tournament, address player, uint round) private view returns(bool) {
         uint startingPosition = tournament.positions[player];
         uint currentPosition = getPosition(startingPosition, round);
         return tournament.playersTree[currentPosition][round] == player;
@@ -200,17 +219,18 @@ library RunTournament {
 library RndSubmission {
     using Math for uint;
 
-/*  Example: Finding the range for node B
-    The weights of nodes A, B, C and D must be summed up
+    /*  Example: Finding the range for node B
+        The weights of nodes A, B, C and D must be summed up
 
-            ABCD                currentRound+2
-            /   \
-          AB     CD             currentRound+1
-        /   |   |   \           
-        A  |B|  C   D           currentRound
+                ABCD                currentRound+2
+                /   \
+            AB     CD             currentRound+1
+            /   |   |   \           
+            A  |B|  C   D           currentRound
 
-    To find the sum of weights, we have to go up in the tree hierachy and find the position of node ABCD
-*/
+        To find the sum of weights, we have to go up in the tree hierachy 
+        and find the position of node ABCD
+    */
 
     // returns the range n to chose the random number
     // 0 =< random_number < n
@@ -225,7 +245,7 @@ library RndSubmission {
 
     function getWeight(Tournament storage tournament, uint position, uint round) private view returns(uint) {
         uint weight;
-        (uint left, uint right) = getChildren(position);
+        (uint left, uint right) = getChildrenPositions(position);
 
         address leftChild = tournament.playersTree[left][round-1];
         if(leftChild != address(0)) {
@@ -246,7 +266,7 @@ library RndSubmission {
         return weight;
     }
 
-    function getChildren(uint position) private pure returns(uint, uint) {
+    function getChildrenPositions(uint position) private pure returns(uint, uint) {
         return (position*2, position*2+1);
     }
 }
@@ -258,9 +278,6 @@ abstract contract LeaderElection {
     using RndSubmission for Tournament;
 
     Tournament public tournament;
-    uint public pricePerTicket;
-    uint public totalTickets;
-    uint public ticketsSold;
 
     uint stageStartTime;
     Stage public stage;
@@ -314,10 +331,6 @@ abstract contract LeaderElection {
         stageStartTime = block.timestamp;
     }
 
-    // only execute this function locally to prevent miners reading your secrets!
-    function hash(uint randomNumber, uint nonce) public pure returns(bytes32) {
-        return keccak256(abi.encodePacked(randomNumber, nonce));
-    }
 }
 
 
@@ -325,6 +338,10 @@ contract Lottery is LeaderElection {
     using CreateTournament for Tournament;
     using RunTournament for Tournament;
     using RndSubmission for Tournament;
+
+    uint public pricePerTicket;
+    uint public totalTickets;
+    uint public ticketsSold;
 
     constructor(uint ticketPrice, uint numberOfTickets) {
         pricePerTicket = ticketPrice;
@@ -359,12 +376,12 @@ contract Lottery is LeaderElection {
     // at the same time, commitment for the next round has to be submitted
     // First round: Any random numer and nonce can be submitted
     // Final round: Any next commitment can be submitted
-    function commitReveal(uint randomNumber, uint nonce, bytes32 nextCommitment) public commitRevealStage {
+    function commitReveal(uint randomNumber, uint nonce, bytes32 commitmentNextRound) public commitRevealStage {
         address player = msg.sender;
         if(!initialCommitRound) {
-            require(hash(randomNumber, nonce) == tournament.commitments[player]);
+            require(hash(randomNumber, tournament.currentRound, nonce) == tournament.commitments[player]);
         }
-        tournament.commitments[player] = nextCommitment;
+        tournament.commitments[player] = commitmentNextRound;
         tournament.compete(player, randomNumber);
     }
 
@@ -372,6 +389,11 @@ contract Lottery is LeaderElection {
     function payout() public payable endStage {
         require(tournament.getTournamentWinner() == msg.sender);
         msg.sender.call{value: address(this).balance}("");
+    }
+
+    // only execute this function locally to prevent miners from reading your secrets!
+    function hash(uint randomNumber, uint round, uint nonce) public pure returns(bytes32) {
+        return keccak256(abi.encodePacked(randomNumber, round, nonce));
     }
 }
 

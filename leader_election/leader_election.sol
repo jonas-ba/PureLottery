@@ -218,68 +218,6 @@ library RunTournament {
     }
 }
 
-/* --obsolete--
-library RndSubmission {
-    using Math for uint;
-
-    //  Example: Finding the range for node B
-        The weights of nodes A, B, C and D must be summed up
-
-                ABCD                currentRound+2
-                /   \
-            AB     CD             currentRound+1
-            /   |   |   \           
-            A  |B|  C   D           currentRound
-
-        To find the sum of weights, we have to go up in the tree hierachy 
-        and find the position of node ABCD
-    //
-
-    // returns the range n to chose the random number
-    // 0 =< random_number < n
-    function getRndRange(Tournament storage tournament, address player) internal view returns(uint) {
-        uint currentRound = tournament.currentRound;
-        require(currentRound <= tournament.totalRounds - 2);
-        uint startingPosition = tournament.positions[player];
-        uint round = currentRound + 2;
-        uint position = startingPosition / (2^(currentRound + 2));
-        return getWeight(tournament, position, round);
-    }
-
-    function getWeight(Tournament storage tournament, uint position, uint round) private view returns(uint) {
-        uint weight;
-        (uint left, uint right) = getChildrenPositions(position);
-
-        address leftChild = tournament.playersTree[left][round-1];
-        if(leftChild != address(0)) {
-            weight += tournament.weights[leftChild];
-        } else {
-            if(round == 0) return 0;
-            weight += getWeight(tournament, left, round-1);
-        }
-
-        address rightChild = tournament.playersTree[right][round-1];
-        if(rightChild != address(0)) {
-            weight += tournament.weights[rightChild];
-        } else {
-            if(round == 0) return 0;
-            weight += getWeight(tournament, right, round-1);
-        }
-
-        return weight;
-    }
-
-    function getChildrenPositions(uint position) private pure returns(uint, uint) {
-        return (position*2, position*2+1);
-    }
-}
-*/
-
-/*
-abstract contract LeaderElection {
-}
-*/
-
 
 contract Lottery {
     using CreateTournament for Tournament;
@@ -389,6 +327,7 @@ contract Lottery {
         commitmentCounter[player]++;
         tournament.compete(player, randomNumber);
     }
+    // TODO Apparently Zhuo and Jonas disagree here about committing all random numbers in the beginning
 
     // the winner can withdraw the prize
     function payout() public payable endStage {
@@ -400,6 +339,5 @@ contract Lottery {
     function hash(uint randomNumber, uint nonce) public pure returns(bytes32) {
         return keccak256(abi.encodePacked(randomNumber, nonce));
     }
-    // TODO Apparently Zhuo and Jonas disagree here about committing all random numbers in the beginning
 }
 

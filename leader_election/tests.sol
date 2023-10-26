@@ -1,4 +1,6 @@
 pragma solidity >=0.8.2 <0.9.0;
+
+import "hardhat/console.sol";
 import "./leader_election.sol";
 
 contract Test {
@@ -6,20 +8,16 @@ contract Test {
     using RunTournament for Tournament;
     using RndSubmission for Tournament;
 
-    event Log(string message, uint number);
-    event PlayerLog(string message, address player, uint number);
-    event PlayerArrayLog(string message, address player, uint[] array);
+    Tournament public tournament;
 
     // create tree with n players with equal shares
-    function createTournament(uint playerCount) public returns(Tournament) {
-        Tournament public tournament;
-        for (uint i = 0; i < playerCount; i++) {
+    function createTournament(uint playerCount) private {
+        for (uint i = 1; i <= playerCount; i++) {
             tournament.addPlayer(player(i));
-            addShares(player(i), 1);
+            tournament.addWeight(player(i), 1);
         }
         tournament.setTotalRounds();
-        emit Log("tree height: ", tournament.totalRounds);
-        return tournament;
+        console.log("Running checkWinningProposal");
     }
 
     function player(uint number) private pure returns(address) {
@@ -28,16 +26,12 @@ contract Test {
 
     // Test with 2 players
     function test1() public {
-        Tournament public tournament = createTournament(2);
+        createTournament(2);
         tournament.compete(player(1), 0);
         tournament.compete(player(2), 0);
         tournament.currentRound++;
         address winner = tournament.getTournamentWinner();
         emit PlayerLog("winner and total weight: ", winner, tournament.weights[winner]);
     }
-
-
-
-    
     
 }

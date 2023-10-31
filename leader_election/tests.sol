@@ -26,6 +26,7 @@ contract Test {
         console.log("step 1");
         createTournament(2);
         console.log("step 2");
+        
         tournament.compete(player(1), 0);
         console.log("step 3");
         tournament.compete(player(2), 0);
@@ -33,6 +34,25 @@ contract Test {
         tournament.currentRound++;
         console.log("step 5");
         address winner = tournament.getTournamentWinner();
+        console.log("winner is ");
+        console.log(winner);
+        console.log("step 6");
+    }
+
+    function test2() public {
+        console.log("step 1");
+        createTournament(2);
+        console.log("step 2");
+        
+        tournament.compete(player(1), 0);
+        console.log("step 3");
+        tournament.compete(player(2), 1);
+        console.log("step 4");
+        tournament.currentRound++;
+        console.log("step 5");
+        address winner = tournament.getTournamentWinner();
+        console.log("winner is ");
+        console.log(winner);
         console.log("step 6");
     }
     

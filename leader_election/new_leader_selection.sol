@@ -57,9 +57,12 @@ library Math {
 library CreateTournament {
     // adds an additional player to the tournament
     function addPlayer(Tournament storage tournament, address player) public {
-        // assert(!playerAlreadyAdded(tournament, player)); 
+        require(!playerAlreadyAdded(tournament, player));
         tournament.positions[player] = tournament.totalPlayers;
         tournament.playersTree[tournament.totalPlayers][0] = player;
+        console.log("position for new player is:", tournament.totalPlayers);
+        console.log("position for player 1 is:", tournament.positions[address(1)]);
+        console.log("position for player 2 is:", tournament.positions[address(2)]);
         tournament.totalPlayers++;
 
         setTotalRounds(tournament);
@@ -115,7 +118,7 @@ library CreateTournament {
 
     // 
     function getPosition(uint startingPosition, uint round) private pure returns(uint) {
-        return startingPosition / (2^round);
+        return startingPosition / (2**round);
     }
 }
 
@@ -127,20 +130,28 @@ library RunTournament {
     // 1. if the player has no opponent in the current round, he wins
     // 2. if the player has an opponent, but opponent has not revealed, record his random number and mark him as temporary winner
     // 3. if the player has an opponent, and opponent also revealed, compare the random number and set the winner
-    function compete(Tournament storage tournament, address player, uint randomNumber) private {
-
+    function compete(Tournament storage tournament, address player, uint randomNumber) public {
+        console.log("###COMPETE. player:", player);
+        console.log("current round:", tournament.currentRound);
         tournament.randomNumbers[player] = randomNumber;
  
         if(hasNoAdversary(tournament, player)) {
-            storeWin(tournament, player);
+            console.log("has no adversary");
+            storeWin(tournament, player, address(0));
             return;
         }
         address adversary = getAdversary(tournament, player);
+        console.log("adversary is:", adversary);
+        console.log("my to reveal round is:", tournament.to_reveal_round[player]);
+        console.log("adversary to reveal round is:", tournament.to_reveal_round[adversary]);
         if(hasRevealed(tournament, adversary)) {
+            console.log("adversary has revealed");
             if(playerWinsRound(tournament, player, randomNumber, adversary)) {
+                console.log("compete and wins");
                 storeWin(tournament, player, adversary);
             }
         } else {
+            console.log("adversary does not revealed");
             storeWin(tournament, player, adversary);
         }
     }
@@ -187,19 +198,26 @@ library RunTournament {
         uint position = getPosition(startingPosition, nextRound);
         tournament.playersTree[position][nextRound] = player;
         tournament.to_reveal_round[player] = nextRound; 
+        console.log("set to reveal_round=nextRound=", nextRound, tournament.to_reveal_round[player]);
         tournament.rounds[player] = nextRound; // this is tentative, might be reversed if lose the competition later
-        if (tournament.round[adversary] == nextRound) // this is the revert operation
+        if (tournament.rounds[adversary] == nextRound) // this is the revert operation
             tournament.rounds[adversary] = tournament.currentRound; 
     }
 
     // returns the player's adversary for the current round
     function getAdversary(Tournament storage tournament, address player) public view returns(address) {      
         uint round = tournament.currentRound;
+        console.log("tournament.currentROund", round);
         uint startingPosition = tournament.positions[player];
+        console.log("starting position is:", startingPosition);
         uint currentPosition = getPosition(startingPosition, round);
 
         uint left = currentPosition - currentPosition%2;
         uint right = left + 1;
+        console.log("left:", left, " | right:", right);
+        console.log(" | currentPosition:", currentPosition);
+        console.log("left address:", tournament.playersTree[left][round], 
+            " | right addr:", tournament.playersTree[right][round]);
         if(currentPosition == left) {
             return tournament.playersTree[right][round];
         } else {
@@ -209,12 +227,12 @@ library RunTournament {
  
     // get the position in the current round
     function getPosition(uint startingPosition, uint round) private pure returns(uint) {
-        return startingPosition / (2^round);
+        return startingPosition / (2**round);
     }
 
     // determines if a player has already revealed in the current round
     function hasRevealed(Tournament storage tournament, address player) private view returns(bool) {
-        return tournament.to_reveal_round[player] == tournament.currentRound + 1;
+        return tournament.to_reveal_round[player] == (tournament.currentRound + 1);
     }
 
     // check is a player is allowed to participate in the current round
@@ -315,10 +333,10 @@ contract Lottery {
 
     // signs the player up for the leader election
     // can also be used to add weight
+    // set non payable for now
     function signup(uint numberOfTickets) public payable signUpStage {
         require(ticketsSold + numberOfTickets <= totalTickets);
-        require(numberOfTickets*pricePerTicket == msg.value);
-        require(!tournament.playerAlreadyAdded(msg.sender));
+        //require(numberOfTickets*pricePerTicket == msg.value);
         tournament.addPlayer(msg.sender);
         tournament.addWeight(msg.sender, numberOfTickets);
         ticketsSold += numberOfTickets;

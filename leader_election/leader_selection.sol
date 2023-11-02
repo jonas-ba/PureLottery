@@ -56,13 +56,10 @@ library Math {
 library CreateTournament {
     // adds an additional player to the tournament
     function addPlayer(Tournament storage tournament, address player) public {
-        console.log("Add player to tournament with address ", player);
-        console.log("Player position is: ", tournament.totalPlayers);
         require(!playerRegistered(tournament, player), "Player already exists");
         tournament.positions[player] = tournament.totalPlayers;
         tournament.playersTree[tournament.totalPlayers][0] = player;
         tournament.totalPlayers++;
-        // setTotalRounds(tournament); // replaced with incrementTreeHeight
         incrementTreeHeight(tournament);
     }
 
@@ -70,18 +67,10 @@ library CreateTournament {
         uint newTotalRounds = Math.log2up(tournament.totalPlayers);
         uint totalRounds = tournament.totalRounds;
         if(newTotalRounds > totalRounds) {
-            console.log("Increase tree height from ", totalRounds, " to ", newTotalRounds);
             tournament.totalRounds = newTotalRounds;
             tournament.weights[0][newTotalRounds] = tournament.weights[0][totalRounds] + tournament.weights[1][totalRounds];
         }
     }
-
-    /*
-    // set the number of rounds, has to be called once before tournament start
-    function setTotalRounds(Tournament storage tournament) private {
-        tournament.totalRounds = Math.log2up(tournament.totalPlayers);
-    }
-    */
 
     // determines if the player has been added already
     function playerRegistered(Tournament storage tournament, address player) public view returns(bool) {
@@ -91,31 +80,8 @@ library CreateTournament {
 
     // adds weight to a player and hence increases its chance to win
     // O(log(n)) for player n. 
-    // If know totalPlayers in advance, average cost per player is O(1). 
-    // Otherwise, average cost per player is O(log(N)). 
-    function addWeight2(Tournament storage tournament, address player, uint weight) public {
-        // assert(!playerRegistered(tournament, player)); 
-        require(playerRegistered(tournament, player)); 
-        uint position = tournament.positions[player];
-        tournament.weights[position][0] = weight;
-        uint nextPosition = position / 2;
-        uint r = 0; // temporary round
-        while(nextPosition!=position) // break loop when position=nextposition=0
-        {
-            if (2*nextPosition+1 == position && tournament.weights[nextPosition][r+1] == 0) // right child, and parent has not added weight of left child yet
-            {
-                tournament.weights[nextPosition][r+1] = tournament.weights[position-1][r] + tournament.weights[position][r];
-            }
-            else
-            {
-                tournament.weights[nextPosition][r+1] += tournament.weights[position][r];
-            }
-            r+=1;
-            position = nextPosition;
-            nextPosition = position / 2;
-        }
-    }
-
+    // If in another setting that totalPlayers is known in advance, average cost per player is O(1). 
+    // Otherwise in the current setting, average cost per player is O(log(N)). 
     function addWeight(Tournament storage tournament, address player, uint weight) public {
         require(playerRegistered(tournament, player), "Player had to be added before adding weight");
         uint position = tournament.positions[player];
@@ -124,7 +90,6 @@ library CreateTournament {
             tournament.weights[position][round] += weight;
             position = position / 2;
         }
-        console.log("weight ", weight, " added to player ", player);
     }
 
     // removes a players weight (and hence also eliminates its chance to win)
@@ -137,12 +102,6 @@ library CreateTournament {
             position = position/2;
         } 
     }
-
-    /*
-    function getPosition(uint startingPosition, uint round) private pure returns(uint) {
-        return startingPosition / (2**round);
-    }
-    */
 }
 
 
@@ -155,9 +114,6 @@ library RunTournament {
     // 2. if the player has an opponent, but the opponent has not revealed, record his random number and mark him as temporary winner
     // 3. if the player has an opponent, and the opponent also revealed, compare the random number and set the winner
     function compete(Tournament storage tournament, address player, uint randomNumber) public {
-        console.log("### COMPETE: player ", player);
-        console.log("current round: ", tournament.currentRound);
-
         // check that the player participates in the tournament
         require(tournament.playerRegistered(player));
         // check the player is eligible at the current round
@@ -167,22 +123,15 @@ library RunTournament {
         tournament.randomNumbers[player] = randomNumber;
  
         if(hasNoAdversary(tournament, player)) {
-            console.log("has no adversary");
             storeWin(tournament, player, address(0));
             return;
         }
         address adversary = getAdversary(tournament, player);
-        console.log("adversary is: ", adversary);
-        console.log("my to_reveal_round is: ", tournament.to_reveal_round[player]);
-        console.log("adversary to_reveal_round is: ", tournament.to_reveal_round[adversary]);
         if(hasRevealed(tournament, adversary)) {
-            console.log("adversary has revealed");
             if(playerWinsRound(tournament, player, randomNumber, adversary)) {
-                console.log("player competes and wins");
                 storeWin(tournament, player, adversary);
             }
         } else {
-            console.log("adversary has not yet revealed");
             storeWin(tournament, player, adversary);
         }
     }
@@ -195,7 +144,7 @@ library RunTournament {
         if(adversary == address(0)) {
             return true;
         }
-        // 2) the player is in the last position and due to an uneven number of player he has noone to match
+        // 2) the player is in the last position and due to an uneven number of player he has none to match
         // a maximum of one player in every round may have no adversary
         uint currentPosition = getPosition(tournament.totalPlayers, tournament.currentRound);
         bool isLastPosition = tournament.playersTree[currentPosition][tournament.currentRound] == player;
@@ -229,7 +178,7 @@ library RunTournament {
         uint position = getPosition(startingPosition, nextRound);
         tournament.playersTree[position][nextRound] = player;
         tournament.to_reveal_round[player] = nextRound; 
-        console.log("set to_reveal_round to ", nextRound, "and nextRound to ", tournament.to_reveal_round[player]);
+        
         tournament.rounds[player] = nextRound; // this is tentative, might be reversed if lose the competition later
         if (tournament.rounds[adversary] == nextRound) // revert the adversary's tentative win
             tournament.rounds[adversary] = tournament.currentRound; 
@@ -238,21 +187,15 @@ library RunTournament {
     // returns the player's adversary for the current round
     function getAdversary(Tournament storage tournament, address player) public view returns(address) {      
         uint round = tournament.currentRound;
-        //console.log("tournament.currentROund", round);
         uint startingPosition = tournament.positions[player];
-        //console.log("starting position is:", startingPosition);
         uint currentPosition = getPosition(startingPosition, round);
 
         uint left = currentPosition - currentPosition%2;
         uint right = left + 1;
-        //console.log("left:", left, " | right:", right);
-        //console.log(" | currentPosition:", currentPosition);
-        //console.log("left address:", tournament.playersTree[left][round], " | right addr:", tournament.playersTree[right][round]);
+        
         if(currentPosition == left) {
-            //console.log("adversary of ", player, " is ", tournament.playersTree[right][round]);
             return tournament.playersTree[right][round];
         } else {
-            //console.log("adversary of ", player, " is ", tournament.playersTree[left][round]);
             return tournament.playersTree[left][round];
         }
     }
@@ -266,20 +209,6 @@ library RunTournament {
     function hasRevealed(Tournament storage tournament, address player) private view returns(bool) {
         return tournament.to_reveal_round[player] == (tournament.currentRound + 1);
     }
-
-    // check is a player is allowed to participate in the current round
-    // function allowedToParticipate(Tournament storage tournament, address player) private view returns(bool) {
-        // uint startingPosition = tournament.positions[player];
-        // uint round = tournament.currentRound;
-        // uint currentPosition = getPosition(startingPosition, round);
-        // // check if the player is in the tree in the current round
-        // bool wonLastRound = tournament.playersTree[currentPosition][round] == player;
-        // // the player has to be in the current round
-        // // if he is already in the next round, he already competed
-        // // and is not allowed to compete again in this round
-        // bool isInCurrentRound = tournament.rounds[player] == tournament.currentRound;
-        // return isInCurrentRound && wonLastRound;
-    // }
 
     function getWeight(Tournament storage tournament, address player, uint round) public view returns(uint) {
         uint playerPosition = tournament.positions[player];
@@ -364,10 +293,9 @@ contract Lottery {
 
     // signs the player up for the leader election
     // can also be used to add weight
-    // set non payable for now
     function signup(uint numberOfTickets) public payable signUpStage {
         require(ticketsSold + numberOfTickets <= totalTickets);
-        //require(numberOfTickets*pricePerTicket == msg.value);
+        require(numberOfTickets*pricePerTicket == msg.value);
         tournament.addPlayer(msg.sender);
         tournament.addWeight(msg.sender, numberOfTickets);
         ticketsSold += numberOfTickets;
@@ -380,14 +308,6 @@ contract Lottery {
         require(success);
     }
 
-    // NOT Required
-    // returns the range n to chose the random number
-    // 0 =< random_number < n
-    // function randomNumberRangeNextRound() public view returns(uint) {
-    //     uint round = tournament.currentRound;
-    //     return tournament.getWeight(msg.sender, round);
-    // }
-
     // reveals the player's random number of current round and participates in the tournament
     // at the same time, commitment for the next round has to be submitted
     // First round: Any random numer and nonce can be submitted
@@ -398,12 +318,7 @@ contract Lottery {
             require(hash(randomNumber, nonce, commitmentNextRound) == commitments[player]);
         }
         commitments[player] = commitmentNextRound;
-
-        // check the player is eligible at the current round
-        // require(tournament.rounds[player]==tournament.currentRound); // moved to compete()
-        // check the player has not revealed at the current round
-        // require(tournament.to_reveal_round[player]==tournament.currentRound); // moved to compete()
-        // TODO move this into the compete function?
+        // check eligibility in compete()
         tournament.compete(player, randomNumber);
     }
 

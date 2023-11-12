@@ -120,6 +120,7 @@ library RunTournament {
         require(tournament.rounds[player]==tournament.currentRound);
         // check the player has not revealed at the current round
         require(tournament.to_reveal_round[player]==tournament.currentRound);
+        
         tournament.randomNumbers[player] = randomNumber;
  
         if(hasNoAdversary(tournament, player)) {

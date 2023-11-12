@@ -26,7 +26,7 @@ struct Tournament {
     uint totalRounds;
     mapping (address => uint) positions; // every player is asigned a unique position
     mapping (address => uint) achievedRounds;
-    mapping (address => uint) revealedRounds; //to_reveal_round; // revealed round + 1
+    mapping (address => uint) revealedRounds;
     mapping (uint => mapping (uint => address)) playersTree; // playersTree[position][round]
     mapping (uint => mapping (uint => uint)) weights; // weights[position][round]
     mapping (address => uint) randomNumbers; // player's random number for the current round

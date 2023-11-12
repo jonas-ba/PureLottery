@@ -25,8 +25,8 @@ struct Tournament {
     uint currentRound;
     uint totalRounds;
     mapping (address => uint) positions; // every player is asigned a unique position
-    mapping (address => uint) rounds;
-    mapping (address => uint) to_reveal_round; // revealed round + 1
+    mapping (address => uint) achievedRounds;
+    mapping (address => uint) revealedRounds; //to_reveal_round; // revealed round + 1
     mapping (uint => mapping (uint => address)) playersTree; // playersTree[position][round]
     mapping (uint => mapping (uint => uint)) weights; // weights[position][round]
     mapping (address => uint) randomNumbers; // player's random number for the current round
@@ -117,6 +117,7 @@ library CreateTournament {
             tournament.weights[position][round] -= weight;
             position = position/2;
         } 
+        return weight;
     }
 }
 
@@ -133,9 +134,9 @@ library RunTournament {
         // check that the player participates in the tournament
         require(tournament.playerRegistered(player));
         // check the player is eligible at the current round
-        require(tournament.rounds[player]==tournament.currentRound);
+        require(tournament.achievedRounds[player]==tournament.currentRound);
         // check the player has not revealed at the current round
-        require(tournament.to_reveal_round[player]==tournament.currentRound);
+        require(tournament.revealedRounds[player]==tournament.currentRound);
         
         tournament.randomNumbers[player] = randomNumber;
  
@@ -194,11 +195,11 @@ library RunTournament {
         uint startingPosition = tournament.positions[player];
         uint position = getPosition(startingPosition, nextRound);
         tournament.playersTree[position][nextRound] = player;
-        tournament.to_reveal_round[player] = nextRound; 
+        tournament.revealedRounds[player] = nextRound; 
         
-        tournament.rounds[player] = nextRound; // this is tentative, might be reversed if lose the competition later
-        if (tournament.rounds[adversary] == nextRound) // revert the adversary's tentative win
-            tournament.rounds[adversary] = tournament.currentRound; 
+        tournament.achievedRounds[player] = nextRound; // this is tentative, might be reversed if lose the competition later
+        if (tournament.achievedRounds[adversary] == nextRound) // revert the adversary's tentative win
+            tournament.achievedRounds[adversary] = tournament.currentRound; 
     }
 
     // returns the player's adversary for the current round
@@ -224,7 +225,7 @@ library RunTournament {
 
     // determines if a player has already revealed in the current round
     function hasRevealed(Tournament storage tournament, address player) private view returns(bool) {
-        return tournament.to_reveal_round[player] == (tournament.currentRound + 1);
+        return tournament.revealedRounds[player] == (tournament.currentRound + 1);
     }
 
     function getWeight(Tournament storage tournament, address player, uint round) public view returns(uint) {

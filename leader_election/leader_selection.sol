@@ -1,3 +1,19 @@
+/*
+
+This code is a proof-of-concept implementation of the leader election protocol described in the paper.
+The IEEE Blockchain'2023 paper accompaning this piece of code can be accessed here:
+https://hal.science/hal-04268058/
+
+This code is released into public domain under Creative Commons Zero v1.0 Universal license.
+
+Disclaimer: 
+The code comes with no warranty, even the implied warranty of correctness 
+or fitness for a particular purpose, and we assume no liability for any losses incurred 
+as a result of deploying it. 
+
+*/
+
+
 pragma solidity >=0.8.2 <0.9.0;
 
 import "hardhat/console.sol";

@@ -1,7 +1,7 @@
 /*
 
 This code is a proof-of-concept implementation of the leader election protocol described in the paper.
-The IEEE Blockchain'2023 paper accompaning this piece of code can be accessed here:
+The IEEE Blockchain 2023 paper accompaning this piece of code can be accessed here:
 https://hal.science/hal-04268058/
 
 This code is released into public domain under Creative Commons Zero v1.0 Universal license.

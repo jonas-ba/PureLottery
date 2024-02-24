@@ -278,30 +278,35 @@ contract Lottery {
 
     modifier commitRevealStage() {
         require(stage == Stage.commit_reveal, "Current stage is not at commit-reveal stage");
-        require(canReveal());
-        if (block.timestamp >= stageStartTime + SUBMISSION_INTERVAL + BREAK_INTERVAL) {
-            // additional round is added because the first commit-submission does not contribute to the tournament
-            if(initialCommitRound) {
-                initialCommitRound = false;
-            } else {
-                tournament.currentRound++;
-            }
-            stageStartTime += SUBMISSION_INTERVAL + BREAK_INTERVAL;
-            if(tournament.currentRound >= tournament.totalRounds + 1) {
-                nextStage();
-            }
-        }
+        nextRound();
         _;
     }
 
-    function canReveal() private view returns(bool) {
-        return block.timestamp < stageStartTime + SUBMISSION_INTERVAL;
+    modifier canReveal() {
+        require(block.timestamp < stageStartTime + SUBMISSION_INTERVAL);
+        _;
     }
 
     modifier endStage() {
+        nextRound();
         require(stage == Stage.end, "Not at end stage");
         _;
     }
+
+    function nextRound() internal {
+            if (stage == Stage.commit_reveal && block.timestamp >= stageStartTime + SUBMISSION_INTERVAL + BREAK_INTERVAL) {
+                // additional round is added because the first commit-submission does not contribute to the tournament
+                if(initialCommitRound) {
+                    initialCommitRound = false;
+                } else {
+                    tournament.currentRound++;
+                }
+                stageStartTime += SUBMISSION_INTERVAL + BREAK_INTERVAL;
+                if(tournament.currentRound >= tournament.totalRounds + 1) {
+                    nextStage();
+                }
+            } 
+    } 
 
     function nextStage() internal {
         stage = Stage(uint(stage) + 1);
@@ -310,7 +315,6 @@ contract Lottery {
 
 
     // signs the player up for the leader election
-    // can also be used to add weight
     function signup(uint numberOfTickets) public payable signUpStage {
         require(ticketsSold + numberOfTickets <= totalTickets);
         require(numberOfTickets*pricePerTicket == msg.value);
@@ -328,13 +332,16 @@ contract Lottery {
 
     // reveals the player's random number of current round and participates in the tournament
     // at the same time, commitment for the next round has to be submitted
-    // First round: Any random numer and nonce can be submitted
+    // First round: Any random numer and salt can be submitted
     // Final round: Any next commitment can be submitted
-    function commitReveal(uint randomNumber, uint nonce, bytes32 commitmentNextRound) public commitRevealStage {
+    function commitReveal(uint randomNumber, uint salt, bytes32 commitmentNextRound) public commitRevealStage canReveal {
         address player = msg.sender;
-        if(!initialCommitRound) {
-            require(hash(randomNumber, nonce, commitmentNextRound) == commitments[player]);
+        require(tournament.playerRegistered(player));
+        if(initialCommitRound) {
+            commitments[player] = commitmentNextRound;
+            return;
         }
+        require(hash(randomNumber, salt, commitmentNextRound) == commitments[player]);
         commitments[player] = commitmentNextRound;
         // check eligibility in compete()
         tournament.compete(player, randomNumber);
@@ -347,8 +354,8 @@ contract Lottery {
     }
 
     // only execute this function locally to prevent miners from reading your secrets!
-    function hash(uint randomNumber, uint nonce, bytes32 nextCommitment) public pure returns(bytes32) {
-        return keccak256(abi.encodePacked(randomNumber, nonce, nextCommitment));
+    function hash(uint randomNumber, uint salt, bytes32 nextCommitment) public pure returns(bytes32) {
+        return keccak256(abi.encodePacked(randomNumber, salt, nextCommitment));
     }
 }
 

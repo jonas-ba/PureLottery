@@ -1,4 +1,4 @@
-@INPROCEEDINGS{10411478,
+@inproceedings{10411478,
   author={Ballweg, Jonas and Cai, Zhuo and Goharshady, Amir Kafshdar},
   booktitle={2023 IEEE International Conference on Blockchain (Blockchain)}, 
   title={PureLottery: Fair Leader Election without Decentralized Random Number Generation}, 

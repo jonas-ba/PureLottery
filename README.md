@@ -7,7 +7,7 @@ The accompanying publications can be found here:
 
 If you use this code, please the following Bibtex in your work:
 
-> `@inproceedings{ballweg:hal-04268058,
+> @inproceedings{ballweg:hal-04268058,
   TITLE = {{PureLottery: Fair Leader Election without Decentralized Random Number Generation}},
   AUTHOR = {Ballweg, Jonas and Cai, Zhuo and Goharshady, Amir Kafshdar},
   URL = {https://hal.science/hal-04268058},
@@ -20,7 +20,7 @@ If you use this code, please the following Bibtex in your work:
   PDF = {https://hal.science/hal-04268058/file/paper.pdf},
   HAL_ID = {hal-04268058},
   HAL_VERSION = {v1},
-}`
+
 
 This code is released into public domain under Creative Commons Zero v1.0 Universal license.
 

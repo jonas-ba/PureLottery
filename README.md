@@ -6,7 +6,8 @@ The accompanying publications can be found here:
 - J. Ballweg, "PureLottery: Fair and Bias-Resistant Leader Election with a Novel Single-Elimination Tournament Algorithm - Bachelor's Thesis in Informatics", Technical University of Munich, 2024, [doi: 10.48550/arXiv.2402.17459](https://doi.org/10.48550/arXiv.2402.17459).
 
 If you use this code, please the following Bibtex in your work:
-`@inproceedings{ballweg:hal-04268058,
+
+> `@inproceedings{ballweg:hal-04268058,
   TITLE = {{PureLottery: Fair Leader Election without Decentralized Random Number Generation}},
   AUTHOR = {Ballweg, Jonas and Cai, Zhuo and Goharshady, Amir Kafshdar},
   URL = {https://hal.science/hal-04268058},

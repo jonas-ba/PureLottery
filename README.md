@@ -7,13 +7,8 @@ The accompanying publications can be found here:
 
 If you use this code, please cite the following Bibtex in your work:
 
-> @inproceedings{
-> 
-> ballweg:hal-04268058,
-> 
-> TITLE = {{PureLottery: Fair Leader Election without Decentralized Random Number Generation}},
-> 
-> AUTHOR = {Ballweg, Jonas and Cai, Zhuo and Goharshady, Amir Kafshdar},
+> @inproceedings{ballweg:hal-04268058,
+  TITLE = {{PureLottery: Fair Leader Election without Decentralized Random Number Generation}}, AUTHOR = {Ballweg, Jonas and Cai, Zhuo and Goharshady, Amir Kafshdar},
   URL = {https://hal.science/hal-04268058},
   BOOKTITLE = {{IEEE International Conference on Blockchain, Blockchain 2023}},
   ADDRESS = {Hainan, China},
